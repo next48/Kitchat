@@ -31,14 +31,7 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      # Without an Apple certificate, ad-hoc signing prevents downloaded ARM
-      # builds from being reported as a damaged application by macOS.
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERTIFICATE_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' }}
 
     steps:
       - name: Checkout
@@ -71,8 +64,12 @@ jobs:
           test -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" || { echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is missing"; exit 1; }
 
       - name: Import Apple signing certificate
-        if: env.APPLE_CERTIFICATE != ''
+        if: env.APPLE_CERTIFICATE_CONFIGURED == 'true'
         shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CONFIGURED_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           certificate="$RUNNER_TEMP/kitchat-developer-id.p12"
@@ -84,6 +81,17 @@ jobs:
           security import "$certificate" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
           security set-key-partition-list -S apple-tool:,apple: -k actions "$keychain"
           security list-keychains -d user -s "$keychain" login.keychain-db
+          identity="$CONFIGURED_SIGNING_IDENTITY"
+          if [[ -z "$identity" ]]; then
+            identity="$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/[0-9A-F]{40}/ { print $2; exit }')"
+          fi
+          test -n "$identity" || { echo "No code-signing identity found in APPLE_CERTIFICATE"; exit 1; }
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Use ad-hoc signing without an Apple certificate
+        if: env.APPLE_CERTIFICATE_CONFIGURED != 'true'
+        shell: bash
+        run: echo 'APPLE_SIGNING_IDENTITY=-' >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
@@ -92,7 +100,18 @@ jobs:
         run: npm test
 
       - name: Build DMG and updater bundle
-        run: npm run tauri -- build --bundles app,dmg
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Tauri treats some present-but-empty Apple variables as configured
+          # credentials. Remove them so ad-hoc builds never import an empty P12.
+          for variable in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [[ -n "${!variable:-}" ]] || unset "$variable"
+          done
+          npm run tauri -- build --bundles app,dmg
 
       - name: Collect release files
         id: release_files
@@ -136,7 +155,7 @@ jobs:
           retention-days: 30
 
       - name: Remove temporary signing keychain
-        if: always() && env.APPLE_CERTIFICATE != ''
+        if: always() && env.APPLE_CERTIFICATE_CONFIGURED == 'true'
         shell: bash
         run: security delete-keychain "$RUNNER_TEMP/kitchat-build.keychain-db" || true
 
