@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-label="Обновление Kitchat">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#332363"/><stop offset=".5" stop-color="#171827"/><stop offset="1" stop-color="#102d36"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#9d7cff" stop-opacity=".58"/><stop offset="1" stop-color="#9d7cff" stop-opacity="0"/></radialGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity=".4"/></filter>
+  </defs>
+  <rect width="1200" height="560" rx="38" fill="url(#bg)"/><circle cx="780" cy="210" r="330" fill="url(#glow)"/>
+  <g opacity=".13" fill="none" stroke="#fff" stroke-width="2"><path d="M0 430C190 300 290 570 505 388S830 260 1200 420"/><path d="M0 468C210 338 320 610 530 420S850 300 1200 454"/></g>
+  <g transform="translate(750 92)" filter="url(#shadow)"><rect width="310" height="310" rx="82" fill="#8d65ed"/><path d="M80 98c43-35 107-35 150 0v91c-38 34-112 34-150 0z" fill="#fff"/><circle cx="122" cy="148" r="17" fill="#8d65ed"/><circle cx="188" cy="148" r="17" fill="#8d65ed"/><path d="M106 191c30 22 68 22 98 0" fill="none" stroke="#8d65ed" stroke-width="14" stroke-linecap="round"/><path d="M78 121 52 97v92l28-20M232 121l26-24v92l-28-20" fill="#fff"/></g>
+  <g transform="translate(92 102)" fill="#fff"><text y="66" font-family="Segoe UI,Arial" font-size="28" font-weight="700" fill="#bcaaff">KITCHAT UPDATE</text><text y="143" font-family="Segoe UI,Arial" font-size="64" font-weight="800">Общаться стало</text><text y="215" font-family="Segoe UI,Arial" font-size="64" font-weight="800">ещё приятнее</text><text y="276" font-family="Segoe UI,Arial" font-size="24" fill="#c7c7d5">Новые функции, исправления и стабильная связь.</text></g>
+</svg>

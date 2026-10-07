@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Kitchat</title>
+    <script type="module" src="/src/tray.ts" defer></script>
+  </head>
+  <body>
+    <main class="tray-card">
+      <header><span class="tray-logo"><img src="/kitchat-loader.png" alt=""></span><b>Kitchat</b><small><i></i> В фоне</small></header>
+      <nav>
+        <button id="trayOpen" data-action="open"><span>↗</span>Открыть</button>
+        <button id="trayUpdates" data-action="updates"><span>↻</span>Обновления</button>
+        <button id="trayQuit" class="danger" data-action="quit"><span>⏻</span>Выйти</button>
+      </nav>
+    </main>
+  </body>
+</html>

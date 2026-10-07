@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Kitchat использует камеру для видеозвонков.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Kitchat использует микрофон для общения в голосовых каналах.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Kitchat использует запись экрана только во время запущенной вами демонстрации.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Kitchat использует системный звук только во время запущенной вами демонстрации.</string>
+</dict>
+</plist>
