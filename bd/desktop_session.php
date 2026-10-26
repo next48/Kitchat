@@ -24,7 +24,7 @@ function desktop_session_user(mysqli $db): int {
     $st=$db->prepare('SELECT user_id FROM desktop_sessions WHERE token_hash=? AND expires_at>NOW() LIMIT 1');
     if(!$st)return 0; $st->bind_param('s',$hash);$st->execute();$row=$st->get_result()->fetch_assoc();$st->close();
     $userId=(int)($row['user_id']??0);
-    if($userId>0){$touch=$db->prepare('UPDATE desktop_sessions SET last_seen_at=NOW() WHERE token_hash=?');if($touch){$touch->bind_param('s',$hash);$touch->execute();$touch->close();}}
+    if($userId>0){$touch=$db->prepare('UPDATE desktop_sessions SET last_seen_at=NOW(), expires_at=GREATEST(expires_at, DATE_ADD(NOW(), INTERVAL 180 DAY)) WHERE token_hash=?');if($touch){$touch->bind_param('s',$hash);$touch->execute();$touch->close();}}
     return $userId;
 }
 function desktop_session_presence_leave(mysqli $db): void {
@@ -38,7 +38,7 @@ function desktop_online_expression(string $userAlias='u'): string {
 }
 function desktop_session_create(mysqli $db,int $userId): string {
     desktop_session_prepare($db);$token=rtrim(strtr(base64_encode(random_bytes(48)),'+/','-_'),'=');$hash=hash('sha256',$token);
-    $st=$db->prepare('INSERT INTO desktop_sessions(token_hash,user_id,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 DAY))');
+    $st=$db->prepare('INSERT INTO desktop_sessions(token_hash,user_id,expires_at) VALUES(?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))');
     $st->bind_param('si',$hash,$userId);$st->execute();$st->close();return $token;
 }
 function desktop_oauth_code_create(mysqli $db,int $userId): string {
