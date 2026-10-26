@@ -121,14 +121,25 @@ jobs:
           version="$(node -p "require('./package.json').version")"
           output="$RUNNER_TEMP/kitchat-macos"
           mkdir -p "$output"
-          find src-tauri/target/release/bundle -type f \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) -exec cp '{}' "$output/" \;
-          test -n "$(find "$output" -maxdepth 1 -name '*.dmg' -print -quit)" || { echo "DMG was not created"; exit 1; }
-          archive="$(find "$output" -maxdepth 1 -name '*.app.tar.gz' -print -quit)"
-          test -n "$archive" || { echo "Updater archive was not created"; exit 1; }
-          test -f "$archive.sig" || { echo "Updater signature was not created"; exit 1; }
           architecture="$(uname -m)"
-          (cd "$output" && shasum -a 256 * > "SHA256SUMS-${architecture}.txt")
-          if [[ "$architecture" == "arm64" ]]; then updater_target="darwin-aarch64"; else updater_target="darwin-x86_64"; fi
+          if [[ "$architecture" == "arm64" ]]; then
+            release_arch="arm64"
+            updater_target="darwin-aarch64"
+          else
+            release_arch="x64"
+            updater_target="darwin-x86_64"
+          fi
+          bundle_root="src-tauri/target/release/bundle"
+          source_dmg="$(find "$bundle_root" -type f -name '*.dmg' -print -quit)"
+          source_archive="$(find "$bundle_root" -type f -name '*.app.tar.gz' -print -quit)"
+          test -n "$source_dmg" || { echo "DMG was not created"; exit 1; }
+          test -n "$source_archive" || { echo "Updater archive was not created"; exit 1; }
+          test -f "$source_archive.sig" || { echo "Updater signature was not created"; exit 1; }
+          cp "$source_dmg" "$output/Kitchat_${version}_${release_arch}.dmg"
+          archive="$output/Kitchat_${version}_${release_arch}.app.tar.gz"
+          cp "$source_archive" "$archive"
+          cp "$source_archive.sig" "$archive.sig"
+          (cd "$output" && shasum -a 256 * > "SHA256SUMS-${release_arch}.txt")
           archive_name="$(basename "$archive")"
           signature="$(cat "$archive.sig")"
           release_tag="$GITHUB_REF_NAME"
