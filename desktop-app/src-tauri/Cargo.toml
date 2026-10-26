@@ -1,6 +1,6 @@
 [package]
 name = "oliver-kitchen-desktop"
-version = "1.4.92"
+version = "1.5.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

@@ -245,6 +245,38 @@ fn detect_game_activity() -> Result<Option<GameActivity>, String> {
 fn detect_game_activity() -> Result<Option<GameActivity>, String> { Ok(None) }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// WebView2 loses recent localStorage writes when the process ends before its
+// LevelDB log is flushed ("checksum mismatch" on next start), which signed users
+// out. Settings are mirrored here with an atomic, fsync'ed write.
+fn settings_backup_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join("settings-backup.json"))
+}
+
+#[tauri::command]
+fn settings_backup_load(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(settings_backup_path(&app)?) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn settings_backup_save(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    use std::io::Write;
+    serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&data).map_err(|error| error.to_string())?;
+    let path = settings_backup_path(&app)?;
+    let temporary = path.with_extension("json.tmp");
+    let mut file = std::fs::File::create(&temporary).map_err(|error| error.to_string())?;
+    file.write_all(data.as_bytes()).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    drop(file);
+    std::fs::rename(&temporary, &path).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -382,9 +414,6 @@ fn capture_frame(_kind: String, _id: usize, _width: u32, _height: u32, _quality:
 #[tauri::command]
 fn tray_action(app: tauri::AppHandle, action: String) {
     use tauri::{Emitter, Manager};
-    if let Some(tray_window) = app.get_webview_window("tray") {
-        let _ = tray_window.hide();
-    }
     match action.as_str() {
         "open" => {
             if let Some(window) = app.get_webview_window("main") {
@@ -434,8 +463,9 @@ pub fn run() {
     builder
         .setup(move |app| {
             use tauri::{
+                menu::{Menu, MenuItem, PredefinedMenuItem},
                 tray::TrayIconBuilder,
-                Manager, PhysicalPosition, Position,
+                Manager,
             };
 
             #[cfg(windows)]
@@ -463,51 +493,37 @@ pub fn run() {
                 })?;
             }
 
+            // Native system tray menu: looks and behaves like every other Windows/macOS app
+            // and does not keep a hidden webview alive just for the popup.
+            let tray_title = MenuItem::with_id(app, "title", format!("Kitchat {}", app.package_info().version), false, None::<&str>)?;
+            let tray_open = MenuItem::with_id(app, "open", "Открыть Kitchat", true, None::<&str>)?;
+            let tray_updates = MenuItem::with_id(app, "updates", "Проверить обновления", true, None::<&str>)?;
+            let tray_quit = MenuItem::with_id(app, "quit", "Выйти из Kitchat", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[
+                &tray_title,
+                &PredefinedMenuItem::separator(app)?,
+                &tray_open,
+                &tray_updates,
+                &PredefinedMenuItem::separator(app)?,
+                &tray_quit,
+            ])?;
             TrayIconBuilder::with_id("kitchat-tray")
                 .icon(app.default_window_icon().expect("app icon").clone())
                 .tooltip("Kitchat — общение продолжается")
+                .menu(&tray_menu)
                 .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| tray_action(app.clone(), event.id().as_ref().to_string()))
                 .on_tray_icon_event(|tray, event| {
+                    // Left click opens the window; right click shows the native menu.
                     if let tauri::tray::TrayIconEvent::Click {
-                        position,
-                        button,
+                        button: tauri::tray::MouseButton::Left,
                         button_state: tauri::tray::MouseButtonState::Up,
                         ..
                     } = event {
-                        if button == tauri::tray::MouseButton::Left {
-                            if let Some(tray_window) = tray.app_handle().get_webview_window("tray") {
-                                let _ = tray_window.hide();
-                            }
-                            if let Some(window) = tray.app_handle().get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        } else if button == tauri::tray::MouseButton::Right {
-                            if let Some(window) = tray.app_handle().get_webview_window("tray") {
-                                let scale = window.scale_factor().unwrap_or(1.0);
-                                let popup_width = 246.0 * scale;
-                                let popup_height = 184.0 * scale;
-                                let monitors = window.available_monitors().unwrap_or_default();
-                                let monitor = monitors.iter().find(|monitor| {
-                                    let origin = monitor.position();
-                                    let size = monitor.size();
-                                    position.x >= origin.x as f64 && position.x < (origin.x + size.width as i32) as f64
-                                        && position.y >= origin.y as f64 && position.y < (origin.y + size.height as i32) as f64
-                                });
-                                let (left, top, right, bottom) = monitor.map(|monitor| {
-                                    let origin = monitor.position();
-                                    let size = monitor.size();
-                                    (origin.x as f64, origin.y as f64, (origin.x + size.width as i32) as f64, (origin.y + size.height as i32) as f64)
-                                }).unwrap_or((0.0, 0.0, position.x + popup_width, position.y + popup_height));
-                                let mut x = if position.x > (left + right) / 2.0 { position.x - popup_width + 18.0 } else { position.x - 18.0 };
-                                let mut y = if position.y > (top + bottom) / 2.0 { position.y - popup_height - 14.0 } else { position.y + 14.0 };
-                                x = x.clamp(left + 8.0, right - popup_width - 8.0);
-                                y = y.clamp(top + 8.0, bottom - popup_height - 8.0);
-                                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x.round() as i32, y.round() as i32)));
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
                         }
                     }
                 })
@@ -554,9 +570,6 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-                tauri::WindowEvent::Focused(false) if window.label() == "tray" => {
-                    let _ = window.hide();
-                }
                 _ => {}
             }
         })
@@ -577,6 +590,8 @@ pub fn run() {
             capture_sources,
             capture_frame,
             tray_action,
+            settings_backup_load,
+            settings_backup_save,
             set_ptt_binding,
             native_stream::native_stream_capabilities,
             native_stream::native_stream_validate,
@@ -590,6 +605,16 @@ pub fn run() {
             process_audio::process_audio_start,
             process_audio::process_audio_stop
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                use tauri::Manager;
+                if let Some(window) = _app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }
