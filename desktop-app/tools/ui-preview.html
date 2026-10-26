@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kitchat UI preview</title>
+<!-- Dev-only harness: `npm run dev`, then open /tools/ui-preview.html (?view=call|share|settings|dm).
+     Mocks Tauri and the Kitchat API so the real main.ts renders with fake data. Not part of the build. -->
+<script>
+const params = new URLSearchParams(location.search);
+const view = params.get("view") || "chat";
+localStorage.setItem("kitchat_token", "preview");
+localStorage.setItem("kitchat_microphone_granted", "1");
+localStorage.setItem("kitchat_camera_granted", "1");
+if (params.get("theme")) localStorage.setItem("kitchat_theme", params.get("theme"));
+const me = { id: 1, name: "Оливер", login: "oliver@kitchen.ru", avatar: "", global_role: "user" };
+const people = [
+  { id: 2, name: "Анастасия", online: true, friend_status: 1 },
+  { id: 3, name: "Михаил", online: true, friend_status: 1 },
+  { id: 4, name: "Полина", online: false, friend_status: 1 },
+  { id: 5, name: "Даниил", online: true, friend_status: 0, sent_by_me: false },
+];
+const members = [{ ...me, online: true, role: "owner" }, { id: 2, name: "Анастасия", online: true, role: "admin" }, { id: 3, name: "Михаил", online: true }, { id: 4, name: "Полина", online: false }];
+const now = new Date();
+const at = (m) => new Date(now - m * 60000).toISOString().slice(0, 19).replace("T", " ");
+const messages = [
+  { id: 1, user_id: 2, name: "Анастасия", message: "Всем привет! Кто сегодня в кооп? 🎮", created_at: at(42) },
+  { id: 2, user_id: 2, name: "Анастасия", message: "Я после восьми свободна", created_at: at(41) },
+  { id: 3, user_id: 3, name: "Михаил", message: "Я в деле. Заодно покажу новый билд — включу демонстрацию экрана", created_at: at(30) },
+  { id: 4, user_id: 1, name: "Оливер", message: "Отлично, обновил Kitchat — теперь можно камеру и стрим одновременно 🔥\nhttps://oliverkitchen.ru", created_at: at(12), read_by: 1 },
+  { id: 5, user_id: 4, name: "Полина", message: "Ого, новый дизайн выглядит шикарно", created_at: at(3) },
+];
+const voiceUsers = [
+  { channel_id: 20, id: 1, name: "Оливер", muted: false, deafened: false, speaking: false, sharing: view === "share", camera: true },
+  { channel_id: 20, id: 2, name: "Анастасия", muted: false, deafened: false, speaking: true, sharing: false, camera: false },
+  { channel_id: 20, id: 3, name: "Михаил", muted: true, deafened: false, speaking: false, sharing: false, camera: false },
+];
+const state = (serverId) => ({
+  ok: true, me: { id: 1, admin: true, global_role: "user" },
+  servers: [{ id: 10, name: "Kitchen Crew", role: "owner", owner_id: 1, description: "Наш уютный сервер" }, { id: 11, name: "Игровая", role: "member" }],
+  server: serverId ? { id: serverId, name: serverId === 10 ? "Kitchen Crew" : "Игровая", role: "owner", owner_id: 1, description: "Наш уютный сервер" } : null,
+  channels: serverId ? [
+    { id: 1, slug: "general", name: "общий", topic: "Болтаем обо всём", type: "text", voice_mode: "p2p", can_edit: true },
+    { id: 2, slug: "memes", name: "мемы", topic: "Только лучшее", type: "text", voice_mode: "p2p" },
+    { id: 20, slug: "voice", name: "Гостиная", topic: "", type: "voice", voice_mode: "p2p", can_edit: true },
+    { id: 21, slug: "voice2", name: "Игры", topic: "", type: "voice", voice_mode: "p2p" },
+  ] : [],
+  messages: serverId ? messages : [], server_members: serverId ? members : [],
+  voice: view === "chat" ? voiceUsers.filter((u) => u.id !== 1) : [], people, search: [], stickers: [],
+  message_sync: { count: 5, max_id: 5, changed: "x" },
+});
+const json = (data) => new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
+window.fetch = async (input, init = {}) => {
+  const url = new URL(String(input), location.href);
+  const body = init.body instanceof URLSearchParams ? init.body : new URLSearchParams();
+  if (url.pathname.endsWith("desktop_auth.php")) return json({ ok: true, user: me, token: "preview" });
+  if (url.pathname.endsWith("community_social.php")) return json({ ok: true, people, server_members: members });
+  if (url.pathname.endsWith("game_presence.php")) return json({ ok: true, activities: [] });
+  if (url.pathname.endsWith("profile_about.php")) return json({ ok: true, about: "Люблю котов и кооперативы ✨" });
+  if (url.pathname.endsWith("turn_credentials.php")) return json({ ok: false });
+  if (url.pathname.endsWith("latest.json")) return json({ version: "1.5.0", title: "Kitchat 1.5", images: [] });
+  if (url.pathname.endsWith("community.php")) {
+    const action = body.get("action") || url.searchParams.get("action");
+    if (action === "voice_join") return json({ ok: true, elapsed_seconds: 754 });
+    if (action === "voice_poll") return json({ ok: true, elapsed_seconds: 754, signals: [], users: voiceUsers });
+    if (action) return json({ ok: true });
+    const serverId = Number(url.searchParams.get("server_id") || 0);
+    return json(state(view === "home" || view === "dm" ? 0 : serverId || 10));
+  }
+  return json({ ok: true });
+};
+let callbackId = 0;
+window.__TAURI_INTERNALS__ = {
+  metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
+  transformCallback: () => ++callbackId,
+  unregisterCallback: () => {},
+  convertFileSrc: (path) => path,
+  invoke: async (cmd) => {
+    if (cmd === "plugin:app|version") return "1.5.0";
+    if (cmd === "plugin:event|listen") return ++callbackId;
+    if (cmd === "plugin:updater|check") return null;
+    if (cmd === "plugin:notification|is_permission_granted") return true;
+    if (cmd === "plugin:autostart|is_enabled") return true;
+    if (cmd === "direct_messages_request") return { ok: true, threads: [{ peer_id: 2, last_message: "Увидимся вечером!", updated_at: at(5), unread: 2 }, { peer_id: 3, last_message: "Скинь билд", updated_at: at(60) }], messages: [{ id: 1, sender_id: 2, receiver_id: 1, message: "Привет! Ты сегодня в голосовом?", created_at: at(20) }, { id: 2, sender_id: 1, receiver_id: 2, message: "Да, после восьми 🙌", created_at: at(18), read_at: at(17) }] };
+    return null;
+  },
+};
+window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+// Fake media: a gradient canvas camera and a silent microphone.
+const fakeVideo = (label, hue) => {
+  const canvas = Object.assign(document.createElement("canvas"), { width: 640, height: 360 });
+  const ctx = canvas.getContext("2d");
+  let t = 0;
+  setInterval(() => {
+    t += 1;
+    const g = ctx.createLinearGradient(0, 0, 640, 360);
+    g.addColorStop(0, `hsl(${(hue + t) % 360} 70% 45%)`); g.addColorStop(1, `hsl(${(hue + 80 + t) % 360} 70% 30%)`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 640, 360);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 34px sans-serif"; ctx.fillText(label, 30, 320);
+  }, 66);
+  return canvas.captureStream(15);
+};
+const silentAudio = () => { const ac = new AudioContext(); return ac.createMediaStreamDestination().stream; };
+navigator.mediaDevices.getUserMedia = async (c) => c.video ? fakeVideo("Камера", 200) : silentAudio();
+navigator.mediaDevices.getDisplayMedia = async () => fakeVideo("Экран: билд игры", 20);
+window.__kcPreview = { view, fakeVideo };
+</script>
+<script type="module">
+import "/src/main.ts";
+const { view } = window.__kcPreview;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (sel) => { for (let i = 0; i < 60; i++) { const n = document.querySelector(sel); if (n) return n; await wait(100); } };
+if (["call", "share", "mini", "chat"].includes(view)) { (await until("[data-server=\"10\"]"))?.click(); await wait(1200); }
+if (view === "call" || view === "share") {
+  (await until('[data-voice="20"]'))?.click();
+  await until("#callCamera"); await wait(800);
+  document.querySelector("#callCamera")?.click();
+  if (view === "share") { await wait(600); document.querySelector("#callShare")?.click(); }
+}
+if (view === "settings") (await until("#userSettings"))?.click();
+if (view === "palette") { await until(".app-shell"); document.querySelector("#kcPaletteOpen")?.click(); }
+if (view === "mini") { (await until('[data-voice="20"]'))?.click(); await until("#callCamera"); await wait(800); document.querySelector("#callCamera")?.click(); await wait(600); document.querySelector('[data-channel="general"]')?.click(); }
+</script>
+</head>
+<body><div id="app"></div></body>
+</html>

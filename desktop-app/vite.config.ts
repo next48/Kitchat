@@ -12,10 +12,10 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   build: {
+    target: "es2022",
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        tray: resolve(__dirname, "tray.html"),
       },
     },
   },

@@ -50,8 +50,6 @@ const desktopAuthPhp=fs.readFileSync(new URL('../../api/desktop_auth.php',import
 const tauriLib=fs.readFileSync(new URL('../src-tauri/src/lib.rs',import.meta.url),'utf8');
 const tauriConfig=fs.readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url),'utf8');
 const macInfo=fs.readFileSync(new URL('../src-tauri/Info.plist',import.meta.url),'utf8');
-const trayHtml=fs.readFileSync(new URL('../tray.html',import.meta.url),'utf8');
-const traySource=fs.readFileSync(new URL('../src/tray.ts',import.meta.url),'utf8');
 const run=(code,context)=>vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,context);
 test('60 FPS is applied to the actual screen sender, not just its picker',async()=>{
   const start=source.indexOf('  const attachFallbackScreenToPeers');
@@ -162,18 +160,14 @@ test('update dialog supports trusted release artwork and an image gallery',()=>{
   assert.match(source,/class="update-gallery"/);
   assert.match(source,/kitchat-update-hero\.svg/);
 });
-test('custom tray keeps open, update and full-exit actions available',()=>{
-  assert.match(trayHtml,/data-action="open"/);
-  assert.match(trayHtml,/data-action="updates"/);
-  assert.match(trayHtml,/data-action="quit"/);
+test('native tray menu keeps open, update and full-exit actions available',()=>{
+  for (const id of ['open','updates','quit']) assert.match(tauriLib,new RegExp(`MenuItem::with_id\\(app, "${id}"`));
+  assert.match(tauriLib,/\.menu\(&tray_menu\)/);
+  assert.match(tauriLib,/on_menu_event\(\|app, event\| tray_action/);
   assert.match(tauriLib,/fn tray_action/);
-  assert.match(tauriLib,/get_webview_window\("tray"\)/);
-  assert.match(tauriLib,/WindowEvent::Focused\(false\).*window\.label\(\) == "tray"/s);
-  assert.match(traySource,/addEventListener\("pointerdown"/);
-  assert.match(traySource,/fallbackAction/);
   assert.match(tauriLib,/MouseButton::Left/);
-  assert.match(tauriLib,/MouseButton::Right/);
   assert.match(tauriLib,/get_webview_window\("main"\).*window\.show\(\).*window\.unminimize\(\).*window\.set_focus\(\)/s);
+  assert.doesNotMatch(tauriConfig,/"label": "tray"/);
   assert.match(source,/onCloseRequested[\s\S]*appWindow\.hide\(\)/);
   assert.doesNotMatch(source,/onCloseRequested[\s\S]{0,240}appWindow\.destroy\(\)/);
 });
@@ -191,4 +185,13 @@ test('a slow old friend search cannot replace a newer result',async()=>{
   replies[1]({search:[{name:'Мария'}]}); await latest;
   replies[0]({search:[{name:'Анна'}]}); await old;
   assert.deepEqual(rendered,[[{name:'Мария'}]]);
+});
+test('session and settings survive a WebView2 localStorage loss',()=>{
+  const persist=fs.readFileSync(new URL('../src/persist.ts',import.meta.url),'utf8');
+  assert.match(source.split('\n').find(line=>line.startsWith('import')),/\.\/persist/);
+  assert.match(persist,/settings_backup_load/);
+  assert.match(persist,/key === "kitchat_token"/);
+  assert.match(tauriLib,/fn settings_backup_save[\s\S]*sync_all\(\)[\s\S]*rename/);
+  assert.match(source,/isSessionRejected\(error\)[\s\S]{0,80}removeItem\("kitchat_token"\)/);
+  assert.doesNotMatch(source,/\} catch \{\n\s*localStorage\.removeItem\("kitchat_token"\);\n\s*authView\(\);/);
 });

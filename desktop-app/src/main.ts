@@ -1,11 +1,16 @@
+// Must stay the first import: restores settings before anything reads them.
+import { flushSettingsBackup } from "./persist";
 import "./styles.css";
 import "./social.css";
+import "@fontsource-variable/manrope";
+import { ico, installIconSprite, svgIcon } from "./icons";
+installIconSprite();
 import { friendsView, friendRows, selectFriends, socialSignature, type FriendFilter } from "./social-ui";
-import { streamProfile } from "./stream-preferences";
+import { STREAM_QUALITY_PRESETS, streamProfile } from "./stream-preferences";
 import { SocialSnapshotClient } from "./social-sync";
 import { formatVoiceDuration, resolveCallFocus, voiceStartedAtFromElapsed } from "./voice-session";
 import { startSystemAudioTrack } from "./system-audio";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize, PhysicalPosition, PhysicalSize, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -26,14 +31,24 @@ const lowResourceMode = () => localStorage.getItem("kitchat_low_performance") ==
 const cameraPreviewMirrored = () => localStorage.getItem("kitchat_camera_mirror") !== "0";
 const LIVEKIT_ENABLED = false; // Retained for a future coordinated server/client rollback.
 const API = "https://oliverkitchen.ru/api";
-let appVersion = "1.4.87";
+let appVersion = "1.5.4";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const loadingView = () => `<main class="loading-screen" aria-label="Kitchat загружается"><div class="loading-logo"><img src="/kitchat-loader.png" alt=""></div><p>Запускаем Kitchat<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span></p></main>`;
-type AppTheme = "standard" | "pink" | "hotpink" | "light" | "aurora";
+type AppTheme = "standard" | "pink" | "hotpink" | "light" | "aurora" | "sunset";
 function applyTheme(value = localStorage.getItem("kitchat_theme") || "standard") {
-  const theme: AppTheme = ["pink", "hotpink", "light", "aurora"].includes(value) ? value as AppTheme : "standard";
+  const theme: AppTheme = ["pink", "hotpink", "light", "aurora", "sunset"].includes(value) ? value as AppTheme : "standard";
   document.body.dataset.theme = theme;
+  const petals = document.querySelector(".kc-petals");
+  if (theme !== "hotpink") { petals?.remove(); return; }
+  if (petals) return;
+  const layer = document.createElement("div");
+  layer.className = "kc-petals";
+  layer.setAttribute("aria-hidden", "true");
+  layer.innerHTML = Array.from({ length: 11 }, (_, index) => `<i style="left:${(index * 9.3 + 3) % 100}%;--fall:${13 + (index * 7) % 9}s;--delay:-${(index * 3.7) % 14}s;--sway:${index % 2 ? 46 : -38}px"></i>`).join("");
+  document.body.append(layer);
 }
+// macOS keeps its native traffic lights (see tauri.macos.conf.json).
+document.body.classList.toggle("platform-mac", /Mac/i.test(navigator.platform || navigator.userAgent));
 applyTheme();
 
 const VOICE_MUTED_KEY = "kitchat_self_muted";
@@ -50,7 +65,7 @@ function saveVoicePreferences(muted: boolean, deafened: boolean) {
 }
 function paintVoicePreferenceButtons() {
   const { muted, deafened } = getVoicePreferences();
-  document.querySelectorAll<HTMLElement>("#selfMute,#callMic").forEach((node) => {
+  document.querySelectorAll<HTMLElement>("#selfMute,#callMic,[data-mini=\"mic\"]").forEach((node) => {
     node.classList.toggle("off", muted);
     node.setAttribute("aria-pressed", String(muted));
   });
@@ -85,7 +100,7 @@ document.addEventListener("pointerdown", (event) => {
 });
 const dropOverlay = document.createElement("div");
 dropOverlay.className = "drop-zone-overlay";
-dropOverlay.innerHTML = `<div class="drop-zone-card"><div class="drop-zone-art"><span>▧</span><span>▨</span><span>▤</span></div><b>Добавить файлы к сообщению</b><small>Отпустите их здесь — можно выбрать до 10 файлов</small></div>`;
+dropOverlay.innerHTML = `<div class="drop-zone-card"><div class="drop-zone-art">${svgIcon("attach")}</div><b>Добавить файлы к сообщению</b><small>Отпустите их здесь — можно выбрать до 10 файлов</small></div>`;
 document.body.append(dropOverlay);
 let dragDepth = 0;
 let activeFileDropHandler: ((files: FileList) => void) | null = null;
@@ -175,6 +190,107 @@ imageViewer.querySelector(".image-viewer-stage")?.addEventListener("wheel", (eve
   paintImageViewerScale();
 }, { passive: false });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !imageViewer.hidden) closeImageViewer(); });
+// --- Persistent window chrome --------------------------------------------
+// Lives outside #app so auth, loading and shell views can all be moved,
+// minimised and closed. Drag works both via Tauri and CSS app-region.
+const titlebar = document.createElement("header");
+titlebar.className = "kc-titlebar";
+titlebar.setAttribute("data-tauri-drag-region", "");
+titlebar.innerHTML = `<div class="kc-titlebar-brand"><img src="/kitchat-icon.png" alt="">Kitchat</div><div class="kc-titlebar-center"><button class="kc-titlebar-search" id="kcPaletteOpen" type="button">${svgIcon("search")}<span>Поиск и команды</span><kbd>Ctrl K</kbd></button></div><div class="kc-titlebar-spacer" data-tauri-drag-region></div><div class="kc-titlebar-actions" id="kcTitlebarActions"></div><div class="kc-window-controls"><button type="button" data-window="minimize" aria-label="Свернуть">${svgIcon("minus")}</button><button type="button" data-window="maximize" aria-label="Развернуть">${svgIcon("square")}</button><button type="button" class="close" data-window="close" aria-label="Скрыть в трей">${svgIcon("x")}</button></div>`;
+document.body.prepend(titlebar);
+titlebar.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  if (target.closest("#kcPaletteOpen")) { openCommandPalette(); return; }
+  const action = target.closest<HTMLElement>("[data-window]")?.dataset.window;
+  if (!action) return;
+  try {
+    const win = getCurrentWindow();
+    void (action === "minimize" ? win.minimize() : action === "maximize" ? win.toggleMaximize() : win.close()).catch(() => {});
+  } catch { /* Browser preview has no native window. */ }
+});
+// Pause decorative animations while Kitchat sits hidden in the tray.
+document.addEventListener("visibilitychange", () => document.body.classList.toggle("app-hidden", document.hidden));
+
+// --- Command palette (Ctrl+K) -----------------------------------------------
+type PaletteItem = { group: string; label: string; hint?: string; icon: string; run: () => void };
+let paletteSources: () => PaletteItem[] = () => [];
+const THEMES = ["standard", "pink", "hotpink", "light", "aurora", "sunset"] as const;
+function paletteCommands(): PaletteItem[] {
+  const click = (selector: string) => () => document.querySelector<HTMLButtonElement>(selector)?.click();
+  const commands: PaletteItem[] = [
+    { group: "Команды", label: "Главная и друзья", icon: svgIcon("home"), run: () => { homePane = { kind: "friends" }; void shellView(0, "", true); } },
+    { group: "Команды", label: "Добавить друга", icon: svgIcon("user-plus"), run: () => friendsModal(0, () => {}, [], false) },
+    { group: "Команды", label: "Настройки", hint: "профиль, голос, тема", icon: svgIcon("gear"), run: click("#userSettings") },
+    { group: "Команды", label: "Микрофон вкл/выкл", hint: "Ctrl+Shift+M", icon: svgIcon("mic"), run: click("#selfMute") },
+    { group: "Команды", label: "Звук вкл/выкл", hint: "Ctrl+Shift+D", icon: svgIcon("headphones"), run: click("#selfDeafen") },
+    { group: "Команды", label: "Режим фокуса", icon: svgIcon("focus"), run: () => document.querySelector(".app-shell")?.classList.toggle("focus-mode") },
+    { group: "Команды", label: "Следующая тема оформления", icon: svgIcon("palette"), run: () => {
+      const current = THEMES.indexOf((localStorage.getItem("kitchat_theme") || "standard") as typeof THEMES[number]);
+      const next = THEMES[(current + 1) % THEMES.length];
+      localStorage.setItem("kitchat_theme", next);
+      applyTheme(next);
+    } },
+    { group: "Команды", label: "Создать сервер", icon: svgIcon("plus"), run: click("#createServer") },
+    { group: "Команды", label: "Проверить обновления", icon: svgIcon("refresh"), run: () => void checkForUpdates(true) },
+  ];
+  if (activeVoiceChannel) commands.unshift({ group: "Звонок", label: "Отключиться от голосового", hint: activeVoiceMeta?.name, icon: svgIcon("hangup"), run: () => void activeVoiceLeave?.() });
+  return commands;
+}
+function openCommandPalette() {
+  if (document.querySelector(".kc-palette-layer") || !currentUser) return;
+  const layer = document.createElement("div");
+  layer.className = "kc-palette-layer";
+  layer.innerHTML = `<div class="kc-palette" role="dialog" aria-label="Быстрый переход"><label class="kc-palette-input">${svgIcon("search")}<input placeholder="Сервер, канал, друг или команда…" autocomplete="off" spellcheck="false"><kbd>Esc</kbd></label><div class="kc-palette-list" role="listbox"></div><div class="kc-palette-hint"><span><kbd>↑↓</kbd> выбор</span><span><kbd>Enter</kbd> открыть</span><span><kbd>Ctrl+Shift+M</kbd> микрофон</span></div></div>`;
+  document.body.append(layer);
+  const input = layer.querySelector<HTMLInputElement>("input")!;
+  const list = layer.querySelector<HTMLElement>(".kc-palette-list")!;
+  const all = [...paletteSources(), ...paletteCommands()];
+  let items: PaletteItem[] = [];
+  let index = 0;
+  const close = () => { layer.remove(); document.removeEventListener("keydown", onKey, true); };
+  const paintActive = () => list.querySelectorAll<HTMLElement>("[data-palette-index]").forEach((node) => node.classList.toggle("active", Number(node.dataset.paletteIndex) === index));
+  const render = () => {
+    const query = input.value.trim().toLocaleLowerCase("ru");
+    items = all.filter((item) => !query || `${item.label} ${item.hint || ""} ${item.group}`.toLocaleLowerCase("ru").includes(query)).slice(0, 50);
+    index = Math.min(index, Math.max(0, items.length - 1));
+    let group = "";
+    list.innerHTML = items.length ? items.map((item, position) => {
+      const heading = item.group !== group ? `<div class="kc-palette-group">${esc(item.group)}</div>` : "";
+      group = item.group;
+      return `${heading}<button type="button" class="kc-palette-item ${position === index ? "active" : ""}" data-palette-index="${position}"><span class="kc-palette-icon">${item.icon}</span><b>${esc(item.label)}</b>${item.hint ? `<small>${esc(item.hint)}</small>` : ""}</button>`;
+    }).join("") : `<div class="kc-palette-empty">Ничего не нашли</div>`;
+  };
+  const run = (position: number) => { const item = items[position]; if (!item) return; close(); item.run(); };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const count = Math.max(1, items.length);
+      index = (index + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+      paintActive();
+      list.querySelector(".kc-palette-item.active")?.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") { event.preventDefault(); run(index); }
+  };
+  document.addEventListener("keydown", onKey, true);
+  input.oninput = () => { index = 0; render(); };
+  list.addEventListener("pointermove", (event) => {
+    const node = (event.target as HTMLElement).closest<HTMLElement>("[data-palette-index]");
+    if (node && Number(node.dataset.paletteIndex) !== index) { index = Number(node.dataset.paletteIndex); paintActive(); }
+  });
+  list.addEventListener("click", (event) => {
+    const node = (event.target as HTMLElement).closest<HTMLElement>("[data-palette-index]");
+    if (node) run(Number(node.dataset.paletteIndex));
+  });
+  layer.addEventListener("mousedown", (event) => { if (event.target === layer) close(); });
+  render();
+  input.focus();
+}
+document.addEventListener("keydown", (event) => {
+  if (!event.ctrlKey && !event.metaKey) return;
+  if (event.code === "KeyK") { event.preventDefault(); openCommandPalette(); }
+  else if (event.shiftKey && event.code === "KeyM") { event.preventDefault(); document.querySelector<HTMLButtonElement>("#selfMute")?.click(); }
+  else if (event.shiftKey && event.code === "KeyD") { event.preventDefault(); document.querySelector<HTMLButtonElement>("#selfDeafen")?.click(); }
+});
 type User = {
   id: number;
   name: string;
@@ -309,7 +425,7 @@ async function refreshOwnGameActivity() {
         executable: next?.executable || "",
         started_at: next?.started_at || 0,
         detector: next ? "matched" : "no_match",
-        client_version: "1.4.80",
+        client_version: appVersion,
       });
       lastReportedGameActivity = activityKey;
       lastGamePresenceHeartbeat = now;
@@ -668,21 +784,15 @@ window.addEventListener("blur", () => {
 });
 void syncGlobalPttShortcut();
 const token = () => localStorage.getItem("kitchat_token") || "";
-function activateTooltips(root: ParentNode = document) {
-  root.querySelectorAll<HTMLElement>("[title]").forEach((node) => {
-    node.dataset.tooltip = node.getAttribute("title") || "";
-    node.removeAttribute("title");
-  });
-}
-new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => {
-  if (node instanceof HTMLElement) activateTooltips(node);
-}))).observe(document.documentElement, { childList: true, subtree: true });
 const floatingTooltip = document.createElement("div");
 floatingTooltip.className = "floating-tooltip";
 floatingTooltip.hidden = true;
 document.body.append(floatingTooltip);
 document.addEventListener("pointerover", (event) => {
-  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-tooltip]");
+  // Titles are converted lazily on hover: no document-wide MutationObserver
+  // scanning every inserted node (chat polling and call tiles insert often).
+  const target = (event.target as HTMLElement).closest<HTMLElement>("[title],[data-tooltip]");
+  if (target?.hasAttribute("title")) { target.dataset.tooltip = target.getAttribute("title") || ""; target.removeAttribute("title"); }
   if (!target?.dataset.tooltip) return;
   const bounds = target.getBoundingClientRect();
   floatingTooltip.textContent = target.dataset.tooltip;
@@ -718,9 +828,10 @@ async function request(path: string, data?: Record<string, string>) {
     .json()
     .catch(() => ({ ok: false, error: "Сервер вернул некорректный ответ" }));
   if (!response.ok || !result.ok)
-    throw new Error(result.error || "Не удалось выполнить запрос");
+    throw Object.assign(new Error(result.error || "Не удалось выполнить запрос"), { status: response.status });
   return result;
 }
+const isSessionRejected = (error: unknown) => (error as { status?: number } | null)?.status === 401;
 async function community(
   query: Record<string, string | number> = {},
   data?: Record<string, string | number>,
@@ -743,7 +854,7 @@ async function community(
     .json()
     .catch(() => ({ ok: false, error: "Сервер сообщества не ответил" }));
   if (!response.ok || !result.ok)
-    throw new Error(result.error || "Не удалось загрузить серверы");
+    throw Object.assign(new Error(result.error || "Не удалось загрузить серверы"), { status: response.status });
   return result;
 }
 async function communityUpload(data: FormData) {
@@ -928,19 +1039,6 @@ async function ensureAutostart() {
     // Автозапуск недоступен только вне установленного приложения.
   }
 }
-const materialIcons: Record<string, string> = {
-  attach: "attach_file", bell: "notifications", "bell-off": "notifications_off", camera: "videocam",
-  "chevron-down": "expand_more", edit: "edit", focus: "fullscreen",
-  gear: "settings", gift: "redeem", headphones: "headphones", "headphones-off": "volume_off", mic: "mic", "mic-off": "mic_off",
-  "phone-down": "call_end", "fullscreen-exit": "fullscreen_exit", search: "search", send: "send", signal: "network_cell", game: "sports_esports",
-  smile: "sentiment_satisfied", users: "group", chat: "chat_bubble", link: "link", delete: "delete", "video-message": "screen_share",
-};
-const materialOffIcons: Record<string, string> = {
-  camera: "videocam_off", headphones: "volume_off", mic: "mic_off",
-  "video-message": "stop_screen_share",
-};
-const ico = (name: string) =>
-  `<span class="app-icon material-symbols-rounded" data-material-icon="${name}" aria-hidden="true"><span class="icon-normal">${materialIcons[name] || name}</span>${materialOffIcons[name] ? `<span class="icon-off">${materialOffIcons[name]}</span>` : ""}</span>`;
 const fullscreenCallControls = () =>
   `<div class="fullscreen-call-chrome is-visible" id="fullscreenCallChrome"><header class="fullscreen-call-heading"><span>${ico("signal")}</span><div><b>${esc(activeVoiceMeta?.name || "Голосовой канал")}</b><small>${esc(activeVoiceMeta?.serverName || "Kitchat")} · <time data-voice-duration>${voiceDurationText()}</time></small></div></header><div class="fullscreen-call-toolbar" role="toolbar" aria-label="Управление голосовым каналом"><button type="button" data-fullscreen-call-action="mic" title="Микрофон">${ico("mic")}</button><button type="button" data-fullscreen-call-action="camera" title="Камера">${ico("camera")}</button><button type="button" data-fullscreen-call-action="share" title="Демонстрация экрана">${ico("video-message")}</button><button type="button" data-fullscreen-call-action="roulette" title="Рулетка ников"><span aria-hidden="true">🎡</span></button><button type="button" data-fullscreen-call-action="deafen" title="Не слышать других">${ico("headphones")}</button><button type="button" data-fullscreen-call-action="exit" title="Выйти из полноэкранного режима">${ico("fullscreen-exit")}</button><button type="button" class="danger" data-fullscreen-call-action="leave" title="Отключиться">${ico("phone-down")}</button></div></div>`;
 const fullscreenActionTargets: Record<string, string> = {
@@ -1002,7 +1100,7 @@ function modal(
   const layer = document.createElement("div");
   layer.className = "modal-layer";
   layer.dataset.modalKind = title.includes("сервер") || title.includes("Сервер") ? "server" : title.includes("канал") || title.includes("Канал") ? "channel" : title.includes("Настройки") || title.includes("Управление") ? "settings" : "dialog";
-  layer.innerHTML = `<form class="modal-card"><button class="modal-close" type="button" aria-label="Закрыть">×</button><div class="modal-titlebar"><div class="modal-title-icon">${title.includes("голос") ? "◖" : title.includes("канал") ? "#" : title.includes("сервер") || title.includes("Сервер") ? "✦" : ""}</div><div><h2>${esc(title)}</h2></div></div>${body}<p class="modal-error"></p><div class="modal-actions"><button type="button" class="cancel">Отмена</button><button type="submit" class="primary">${esc(submitLabel)}</button></div></form>`;
+  layer.innerHTML = `<form class="modal-card"><button class="modal-close" type="button" aria-label="Закрыть">×</button><div class="modal-titlebar"><div class="modal-title-icon">${title.includes("голос") ? svgIcon("volume") : title.includes("канал") ? svgIcon("hash") : title.includes("сервер") || title.includes("Сервер") ? svgIcon("server") : ""}</div><div><h2>${esc(title)}</h2></div></div>${body}<p class="modal-error"></p><div class="modal-actions"><button type="button" class="cancel">Отмена</button><button type="submit" class="primary">${esc(submitLabel)}</button></div></form>`;
   document.body.append(layer);
   const form = layer.querySelector<HTMLFormElement>("form")!;
   const close = () => {
@@ -1609,7 +1707,7 @@ function openUserProfileMenu(x: number, y: number, person: User) {
   const cachedAbout = profileAboutCache.get(person.id) || person.about || "";
   const activityMarkup = profileActivityMarkup(person);
   menu.dataset.profileUser = String(person.id);
-  menu.innerHTML = `<div class="supreme-profile-banner"></div><div class="supreme-profile-avatar avatar">${avatar(person)}${person.online ? "<i></i>" : ""}</div><div class="supreme-profile-body"><div class="supreme-profile-name"><b>${esc(person.name)}</b><span>${person.global_role === "superadmin" ? "✦ Самый главный" : esc(roleText)}</span></div><div class="profile-quick-meta"><span><i class="profile-dot ${person.online ? "online" : ""}"></i>${esc(statusText)}</span>${loginChip}<span>ID ${person.id}</span></div><div class="supreme-profile-divider"></div><div data-profile-activity>${activityMarkup}</div><section class="profile-about"><small>О СЕБЕ</small><p data-profile-about>${cachedAbout ? esc(cachedAbout) : "Пока ничего не рассказал о себе."}</p></section></div>`;
+  menu.innerHTML = `<div class="supreme-profile-banner"></div><div class="supreme-profile-avatar avatar">${avatar(person)}${person.online ? "<i></i>" : ""}</div><div class="supreme-profile-body"><div class="supreme-profile-name"><b>${esc(person.name)}</b><span>${person.global_role === "superadmin" ? `${svgIcon("crown")} Самый главный` : esc(roleText)}</span></div><div class="profile-quick-meta"><span><i class="profile-dot ${person.online ? "online" : ""}"></i>${esc(statusText)}</span>${loginChip}<span>ID ${person.id}</span></div><div class="supreme-profile-divider"></div><div data-profile-activity>${activityMarkup}</div><section class="profile-about"><small>О СЕБЕ</small><p data-profile-about>${cachedAbout ? esc(cachedAbout) : "Пока ничего не рассказал о себе."}</p></section></div>`;
   if (!profileAboutCache.has(person.id)) {
     void loadProfileAbout(person.id).then((about) => {
       const target = menu.querySelector<HTMLElement>("[data-profile-about]");
@@ -1626,7 +1724,7 @@ function openUserProfileMenu(x: number, y: number, person: User) {
 }
 const dockMarkup = () =>
   activeVoiceChannel && activeVoiceMeta
-    ? `<section class="voice-dock-app" id="voiceDockApp" data-connection="connected"><div class="voice-status-app"><span>${ico("signal")}</span><div><b id="voiceConnectionLabel">Голосовая связь подключена</b><small><span>${esc(activeVoiceMeta.name)} / ${esc(activeVoiceMeta.serverName)}</span><time data-voice-duration>${voiceDurationText()}</time></small></div><button id="voiceQuality" data-tooltip="Качество связи">${ico("signal")}</button><button id="voiceDockLeave" data-tooltip="Отключиться">${ico("phone-down")}</button></div><div class="voice-quality-popover" id="voiceQualityPopover" hidden data-level="good"><header><span><b>Качество связи</b><small>Соединение стабильно</small></span><i></i></header><div class="quality-metrics"><div><small>Задержка</small><b id="qualityPing">—</b></div><div><small>Канал</small><b>${activeVoiceMode === "p2p" ? "P2P mesh" : "LiveKit"}</b></div><div><small>Статус</small><b id="qualityState">Хорошо</b></div></div></div></section>`
+    ? `<section class="voice-dock-app" id="voiceDockApp" data-connection="connected"><div class="voice-status-app"><span>${ico("signal")}</span><div data-voice-return title="${esc(activeVoiceMeta.name)} · ${esc(activeVoiceMeta.serverName)} — вернуться к звонку"><b id="voiceConnectionLabel">Голос подключён</b><small><span>${esc(activeVoiceMeta.name)}</span><time data-voice-duration>${voiceDurationText()}</time></small></div><button id="voiceQuality" data-tooltip="Качество связи">${ico("signal")}</button><button id="voiceDockLeave" data-tooltip="Отключиться">${ico("phone-down")}</button></div><div class="voice-quality-popover" id="voiceQualityPopover" hidden data-level="good"><header><span><b>Качество связи</b><small>Соединение стабильно</small></span><i></i></header><div class="quality-metrics"><div><small>Задержка</small><b id="qualityPing">—</b></div><div><small>Канал</small><b>${activeVoiceMode === "p2p" ? "P2P mesh" : "LiveKit"}</b></div><div><small>Статус</small><b id="qualityState">Хорошо</b></div></div></div></section>`
     : "";
 const SERVER_ORDER_KEY = "kitchat_server_order";
 function orderedServers<T extends { id: number }>(servers: T[]): T[] {
@@ -1641,6 +1739,155 @@ function orderedServers<T extends { id: number }>(servers: T[]): T[] {
 }
 function saveServerOrder(ids: number[]) {
   localStorage.setItem(SERVER_ORDER_KEY, JSON.stringify(ids));
+}
+let shellListeners = new AbortController();
+/** Prefers the hardware H.264 encoder for screen sharing: far less CPU and delay than software VP8. */
+function preferScreenCodec(pc: RTCPeerConnection, sender: RTCRtpSender) {
+  const choice = localStorage.getItem("kitchat_stream_codec") || "h264";
+  if (choice === "auto") return;
+  const transceiver = pc.getTransceivers().find((item) => item.sender === sender);
+  const codecs = RTCRtpReceiver.getCapabilities?.("video")?.codecs || [];
+  const pattern = choice === "vp9" ? /vp9/i : /h264/i;
+  const preferred = codecs.filter((codec) => pattern.test(codec.mimeType));
+  if (!transceiver || !preferred.length) return;
+  try { transceiver.setCodecPreferences([...preferred, ...codecs.filter((codec) => !pattern.test(codec.mimeType))]); } catch (error) { console.warn("Codec preference rejected", error); }
+}
+let lastNavKey = "";
+let lastServerKey = "";
+let activeVoiceServerId = 0;
+let restoreCallOnRender = false;
+let callMiniVisible = false;
+const renderedMarkup = new WeakMap<Element, string>();
+/** Writes markup only when it changed: polling no longer re-creates avatars every second. */
+function setMarkup(element: Element, html: string) {
+  if (renderedMarkup.get(element) === html) return;
+  renderedMarkup.set(element, html);
+  element.innerHTML = html;
+}
+// The call room is moved (never detached) between the main area and a floating
+// mini player. A synchronous DOM move keeps every <video>/<audio> playing.
+function dockCallMini(room: HTMLElement) {
+  let mini = document.querySelector<HTMLElement>("#kcCallMini");
+  if (!mini) {
+    mini = document.createElement("div");
+    mini.id = "kcCallMini";
+    mini.className = "kc-call-mini";
+    mini.innerHTML = `<div class="kc-call-mini-bar"><i></i><span><b>${esc(activeVoiceMeta?.name || "Голосовой канал")}</b><small>${esc(activeVoiceMeta?.serverName || "Kitchat")} · <time data-voice-duration>${voiceDurationText()}</time></small></span><button type="button" data-mini="mic" title="Микрофон">${ico("mic")}</button><button type="button" data-mini="popout" title="Вынести поверх всех окон">${ico("popout")}</button><button type="button" data-mini="pin" title="Закрепить поверх окон">${ico("pin")}</button><button type="button" data-mini="expand" title="Вернуться к звонку">${ico("expand")}</button><button type="button" data-mini="hide" title="Скрыть мини-плеер">${ico("x")}</button><button type="button" class="leave" data-mini="leave" title="Отключиться">${ico("phone-down")}</button></div>`;
+    try {
+      const saved = JSON.parse(localStorage.getItem("kitchat_mini_position") || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+        mini.style.left = `${Math.max(8, Math.min(innerWidth - 388, saved.x))}px`;
+        mini.style.top = `${Math.max(40, Math.min(innerHeight - 268, saved.y))}px`;
+        mini.style.right = "auto"; mini.style.bottom = "auto";
+      }
+    } catch {}
+    document.body.append(mini);
+    const bar = mini.querySelector<HTMLElement>(".kc-call-mini-bar")!;
+    bar.addEventListener("click", (event) => {
+      const action = (event.target as HTMLElement).closest<HTMLElement>("[data-mini]")?.dataset.mini;
+      if (action === "mic") document.querySelector<HTMLButtonElement>("#callMic")?.click();
+      if (action === "leave") { playSound("leave"); void activeVoiceLeave?.(); }
+      if (action === "popout") void enterWindowMini();
+      if (action === "pin") void toggleWindowMiniPin();
+      if (action === "hide") { void exitWindowMini(); callMiniVisible = false; mini!.classList.add("is-parked"); }
+      if (action === "expand") void expandCallFromMini();
+    });
+    bar.addEventListener("dblclick", (event) => { if (!(event.target as HTMLElement).closest("button")) void expandCallFromMini(); });
+    bar.addEventListener("pointerdown", (event) => {
+      if ((event.target as HTMLElement).closest("button") || event.button !== 0) return;
+      // Popped out: the whole window is the player, so drag the native window.
+      if (windowMiniBounds) { void getCurrentWindow().startDragging().catch(() => {}); return; }
+      const box = mini!.getBoundingClientRect();
+      const dx = event.clientX - box.left, dy = event.clientY - box.top;
+      bar.setPointerCapture(event.pointerId);
+      const move = (moveEvent: PointerEvent) => {
+        const x = Math.max(8, Math.min(innerWidth - box.width - 8, moveEvent.clientX - dx));
+        const y = Math.max(40, Math.min(innerHeight - box.height - 8, moveEvent.clientY - dy));
+        Object.assign(mini!.style, { left: `${x}px`, top: `${y}px`, right: "auto", bottom: "auto" });
+      };
+      const up = () => {
+        bar.removeEventListener("pointermove", move);
+        const rect = mini!.getBoundingClientRect();
+        localStorage.setItem("kitchat_mini_position", JSON.stringify({ x: Math.round(rect.left), y: Math.round(rect.top) }));
+      };
+      bar.addEventListener("pointermove", move);
+      bar.addEventListener("pointerup", up, { once: true });
+    });
+  }
+  if (room.parentElement !== mini) mini.append(room);
+  mini.classList.toggle("is-parked", !callMiniVisible);
+  paintVoicePreferenceButtons();
+}
+// "Pop out": the Kitchat window itself shrinks into a compact player that can
+// leave the app area and stay above other applications. Media never moves to
+// another webview, so nothing is re-encoded and calls keep running smoothly.
+let windowMiniBounds: { width: number; height: number; x: number; y: number; maximized: boolean } | null = null;
+let windowMiniPinned = localStorage.getItem("kitchat_mini_pinned") !== "0";
+function paintWindowMiniPin() {
+  const pin = document.querySelector<HTMLButtonElement>('[data-mini="pin"]');
+  if (!pin) return;
+  pin.classList.toggle("on", windowMiniPinned);
+  pin.title = windowMiniPinned ? "Открепить (обычное окно)" : "Закрепить поверх окон";
+}
+async function enterWindowMini() {
+  if (windowMiniBounds || !activeVoiceRoom) return;
+  const win = getCurrentWindow();
+  try {
+    const [size, position, maximized] = await Promise.all([win.outerSize(), win.outerPosition(), win.isMaximized()]);
+    windowMiniBounds = { width: size.width, height: size.height, x: position.x, y: position.y, maximized };
+    if (maximized) await win.unmaximize();
+    callMiniVisible = true;
+    document.querySelector("#kcCallMini")?.classList.remove("is-parked");
+    document.body.classList.add("window-mini");
+    await win.setMinSize(new LogicalSize(300, 190));
+    await win.setSize(new LogicalSize(420, 270));
+    const monitor = await currentMonitor();
+    if (monitor) {
+      const area = monitor.workArea, scale = monitor.scaleFactor;
+      await win.setPosition(new PhysicalPosition(
+        Math.round(area.position.x + area.size.width - (420 + 24) * scale),
+        Math.round(area.position.y + area.size.height - (270 + 24) * scale),
+      ));
+    }
+    await win.setAlwaysOnTop(windowMiniPinned);
+    paintWindowMiniPin();
+  } catch (error) {
+    console.warn("Pop-out player unavailable", error);
+    windowMiniBounds = null;
+    document.body.classList.remove("window-mini");
+  }
+}
+async function exitWindowMini() {
+  const bounds = windowMiniBounds;
+  if (!bounds) return;
+  windowMiniBounds = null;
+  document.body.classList.remove("window-mini");
+  const win = getCurrentWindow();
+  await win.setAlwaysOnTop(false).catch(() => {});
+  await win.setMinSize(new LogicalSize(980, 640)).catch(() => {});
+  await win.setSize(new PhysicalSize(bounds.width, bounds.height)).catch(() => {});
+  await win.setPosition(new PhysicalPosition(bounds.x, bounds.y)).catch(() => {});
+  if (bounds.maximized) await win.maximize().catch(() => {});
+}
+async function toggleWindowMiniPin() {
+  windowMiniPinned = !windowMiniPinned;
+  localStorage.setItem("kitchat_mini_pinned", windowMiniPinned ? "1" : "0");
+  paintWindowMiniPin();
+  if (windowMiniBounds) await getCurrentWindow().setAlwaysOnTop(windowMiniPinned).catch(() => {});
+}
+async function expandCallFromMini() {
+  await exitWindowMini();
+  restoreCallOnRender = true;
+  void shellView(activeVoiceServerId, "");
+}
+function undockCallMini(target: HTMLElement) {
+  const room = activeVoiceRoom;
+  if (!room) return;
+  target.innerHTML = "";
+  target.append(room);
+  document.querySelector("#kcCallMini")?.remove();
+  callMiniVisible = false;
+  room.querySelectorAll<HTMLVideoElement>("video").forEach((video) => { if (video.paused && video.srcObject) void video.play().catch(() => {}); });
 }
 function memberSidebarRoleLabel(member: User) {
   return member.global_role === "superadmin" ? "Самый главный"
@@ -1666,12 +1913,14 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   if (currentRoom && activeVoiceChannel) {
     // Не уничтожаем медиа-элементы звонка при переходе в текстовый канал.
     // Иначе WebView удаляет remote audio и собеседников перестаёт быть слышно.
-    const remoteAudio = currentRoom.querySelector<HTMLElement>("#remoteAudio");
-    if (remoteAudio) document.body.append(remoteAudio);
     activeVoiceRoom = currentRoom;
-    currentRoom.remove();
+    dockCallMini(currentRoom);
   }
   const revision = ++viewRevision;
+  // Every shell render used to add document listeners that were never removed.
+  shellListeners.abort();
+  shellListeners = new AbortController();
+  const viewListen = { signal: shellListeners.signal };
   const user = currentUser!;
   if (!app.querySelector(".app-shell")) app.innerHTML = loadingView();
   let state: CommunityState;
@@ -1684,7 +1933,12 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     state.voice.forEach((user) => voiceDirectory.set(user.id, user));
   } catch (error) {
     if (revision !== viewRevision) return;
-    app.innerHTML = `<main class="loading-screen error">${esc(error instanceof Error ? error.message : "Ошибка загрузки")}</main>`;
+    if (isSessionRejected(error)) { localStorage.removeItem("kitchat_token"); currentUser = null; authView(); return; }
+    if (!app.querySelector(".app-shell")) {
+      app.innerHTML = `<main class="loading-screen error"><p>Нет связи с сервером</p><small>${esc(error instanceof Error ? error.message : "Ошибка загрузки")} · повторяем автоматически</small><button class="btn-ghost" type="button" id="retryShell">Повторить сейчас</button></main>`;
+      app.querySelector<HTMLButtonElement>("#retryShell")!.onclick = () => void shellView(serverId, channelSlug, forceHome);
+    } else showAppNotice("Нет связи с сервером", "Повторяем подключение…", "warning");
+    window.setTimeout(() => { if (revision === viewRevision) void shellView(serverId, channelSlug, forceHome); }, 4000);
     return;
   }
   if (revision !== viewRevision) return;
@@ -1780,7 +2034,26 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   const canManageServer = !!active && (isSupreme || ["owner", "admin"].includes(active.role || "member"));
   const canManageRoles = !!active && (isSupreme || active.role === "owner");
   const canDeleteServer = !!active && (isSupreme || active.owner_id === user.id);
-  app.innerHTML = `<main class="app-shell ${active ? "" : "no-server"}"><nav class="rail"><button class="home active-home ${incomingRequests.length ? "has-notice" : ""}" id="homeStart" title="Главная"><img src="/kitchat-icon.png" alt="Kitchat">${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><i></i>${serverButtons}<button class="add" id="createServer" title="Создать сервер">+</button><div class="rail-spacer"></div></nav><aside class="channels"><header><div><small>${active ? "СЕРВЕР" : "KITCHAT"}</small><b>${esc(active?.name || "Главная")}</b></div>${active && canManageServer ? `<button id="serverSettings" title="Настройки сервера">${ico("gear")}</button>` : ""}</header><div class="channel-scroll">${active ? `<div class="section"><span>ТЕКСТОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="text" title="Создать текстовый канал">+</button>' : ""}</div>${channelList(textChannels, "text")}<div class="section voice-title"><span>ГОЛОСОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="voice" title="Создать голосовой канал">+</button>' : ""}</div>${channelList(voiceChannels, "voice")}` : `<button class="home-nav-friends ${homePane.kind === "friends" ? "active" : ""}" type="button" id="homeFriends">${ico("users")}<span><b>Друзья</b><small>${friends.filter((p) => p.online).length} сейчас в сети</small></span></button><button class="home-nav-friends requests ${homePane.kind === "requests" ? "active" : ""}" type="button" id="homeRequests">${ico("bell")}<span><b>Заявки в друзья</b><small>${incomingRequests.length ? `${incomingRequests.length} новых` : "Новых заявок нет"}</small></span>${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><section class="dm-sidebar-card"><div class="section dm-title"><span>ЛИЧНЫЕ СООБЩЕНИЯ</span><button type="button" id="homeNewDm" title="Новое сообщение">+</button></div><div class="dm-thread-list">${dmThreadRows || `<div class="dm-empty-hint">${ico("chat")}<b>Диалогов пока нет</b><small>Начните личную переписку с другом</small></div>`}</div></section>`}</div>${dockMarkup()}<section class="profile"><div class="avatar">${avatar(user)}<i></i></div><div><b>${esc(user.name)}</b><small>${isSupreme ? "Самый главный" : "В сети"}</small></div><button id="selfMute" class="${getVoicePreferences().muted ? "off" : ""}" aria-pressed="${getVoicePreferences().muted}" title="Микрофон">${ico("mic")}</button><button id="selfDeafen" class="${getVoicePreferences().deafened ? "off" : ""}" aria-pressed="${getVoicePreferences().deafened}" title="Наушники">${ico("headphones")}</button><button id="userSettings" title="Настройки">${ico("gear")}</button><button id="logout" title="Выйти">${ico("phone-down")}</button></section></aside><section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Добавить друга">${ico("users")}</button>` : ""}</header>${active ? memberRows(state.server_members) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside><div class="titlebar"><span>Kitchat</span><div><button>—</button><button>□</button><button>×</button></div></div></main>`;
+  const previousChannelScroll = document.querySelector<HTMLElement>(".channel-scroll")?.scrollTop || 0;
+  const navKey = `${active?.id || 0}|${selected?.slug || ""}|${active ? "" : homePane.kind}|${active ? "" : homePane.userId || ""}`;
+  const serverKey = String(active?.id || 0);
+  const navigated = navKey !== lastNavKey;
+  const serverChanged = serverKey !== lastServerKey;
+  lastNavKey = navKey;
+  lastServerKey = serverKey;
+  app.innerHTML = `<main class="app-shell ${active ? "" : "no-server"}"><nav class="rail"><button class="home active-home ${incomingRequests.length ? "has-notice" : ""}" id="homeStart" title="Главная"><img src="/kitchat-icon.png" alt="Kitchat">${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><i></i>${serverButtons}<button class="add" id="createServer" title="Создать сервер">+</button><div class="rail-spacer"></div></nav><aside class="channels"><header><div><small>${active ? "СЕРВЕР" : "KITCHAT"}</small><b>${esc(active?.name || "Главная")}</b></div>${active && canManageServer ? `<button id="serverSettings" title="Настройки сервера">${ico("gear")}</button>` : ""}</header><div class="channel-scroll">${active ? `<div class="section"><span>ТЕКСТОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="text" title="Создать текстовый канал">+</button>' : ""}</div>${channelList(textChannels, "text")}<div class="section voice-title"><span>ГОЛОСОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="voice" title="Создать голосовой канал">+</button>' : ""}</div>${channelList(voiceChannels, "voice")}` : `<button class="home-nav-friends ${homePane.kind === "friends" ? "active" : ""}" type="button" id="homeFriends">${ico("users")}<span><b>Друзья</b><small>${friends.filter((p) => p.online).length} сейчас в сети</small></span></button><button class="home-nav-friends requests ${homePane.kind === "requests" ? "active" : ""}" type="button" id="homeRequests">${ico("bell")}<span><b>Заявки в друзья</b><small>${incomingRequests.length ? `${incomingRequests.length} новых` : "Новых заявок нет"}</small></span>${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><section class="dm-sidebar-card"><div class="section dm-title"><span>ЛИЧНЫЕ СООБЩЕНИЯ</span><button type="button" id="homeNewDm" title="Новое сообщение">+</button></div><div class="dm-thread-list">${dmThreadRows || `<div class="dm-empty-hint">${ico("chat")}<b>Диалогов пока нет</b><small>Начните личную переписку с другом</small></div>`}</div></section>`}</div>${dockMarkup()}<section class="profile"><div class="avatar">${avatar(user)}<i></i></div><div><b>${esc(user.name)}</b><small>${isSupreme ? "Самый главный" : "В сети"}</small></div><button id="selfMute" class="${getVoicePreferences().muted ? "off" : ""}" aria-pressed="${getVoicePreferences().muted}" title="Микрофон">${ico("mic")}</button><button id="selfDeafen" class="${getVoicePreferences().deafened ? "off" : ""}" aria-pressed="${getVoicePreferences().deafened}" title="Наушники">${ico("headphones")}</button><button id="userSettings" title="Настройки">${ico("gear")}</button><button id="logout" title="Выйти">${ico("phone-down")}</button></section></aside><section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Добавить друга">${ico("users")}</button>` : ""}</header>${active ? memberRows(state.server_members) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside></main>`;
+  paletteSources = () => [
+    ...sortedServers.map((server) => ({ group: "Серверы", label: server.name, hint: server.id === active?.id ? "открыт" : undefined, icon: server.icon ? `<img src="${esc(assetUrl(server.icon))}" alt="">` : esc(server.name.slice(0, 2).toUpperCase()), run: () => void shellView(server.id, "") })),
+    ...(active ? textChannels.map((channel) => ({ group: `Каналы · ${active.name}`, label: channel.name, hint: channel.topic || undefined, icon: svgIcon("hash"), run: () => void shellView(active.id, channel.slug) })) : []),
+    ...(active ? voiceChannels.map((channel) => ({ group: `Голосовые · ${active.name}`, label: channel.name, hint: channel.id === activeVoiceChannel ? "вы здесь" : undefined, icon: svgIcon("volume"), run: () => document.querySelector<HTMLButtonElement>(`[data-voice="${channel.id}"]`)?.click() })) : []),
+    ...friends.map((person) => ({ group: "Друзья", label: person.name, hint: person.online ? "в сети" : "не в сети", icon: avatar(person), run: () => { homePane = { kind: "dm", userId: person.id }; void shellView(0, "", true); } })),
+  ];
+  const channelScroll = document.querySelector<HTMLElement>(".channel-scroll");
+  if (channelScroll) {
+    if (serverChanged) channelScroll.classList.add("view-enter");
+    else channelScroll.scrollTop = previousChannelScroll;
+  }
+  if (navigated) document.querySelector(".chat")?.classList.add("view-enter");
   paintVoiceDuration();
   if (homePane.kind === "requests") friendsFilter = "incoming";
   const membersPanel = document.querySelector<HTMLElement>(".members")!;
@@ -1893,7 +2166,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       if (socialRefreshRequested && !syncStopped && revision === viewRevision) { socialRefreshRequested = false; void syncSocial(); }
     }
   };
-  const socialLoop = async () => { await syncSocial(); if (!syncStopped && revision === viewRevision) socialTimer = window.setTimeout(socialLoop, 3000); };
+  const socialLoop = async () => { await syncSocial(); if (!syncStopped && revision === viewRevision) socialTimer = window.setTimeout(socialLoop, document.hidden ? 9000 : 3000); };
   const wakeSocial = () => { if (!document.hidden) void syncSocial(); };
   window.addEventListener("focus", wakeSocial); window.addEventListener("online", wakeSocial); document.addEventListener("visibilitychange", wakeSocial);
   socialTimer = window.setTimeout(socialLoop, 300);
@@ -1941,20 +2214,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     const toggle = header.querySelector<HTMLButtonElement>("#serverMenuToggle")!;
     const dropdown = header.querySelector<HTMLElement>("#serverDropdown")!;
     toggle.onclick = (event) => { event.stopPropagation(); dropdown.hidden = !dropdown.hidden; toggle.classList.toggle("open", !dropdown.hidden); };
-    document.addEventListener("pointerdown", (event) => { if (revision === viewRevision && !header.contains(event.target as Node)) { dropdown.hidden = true; toggle.classList.remove("open"); } });
+    document.addEventListener("pointerdown", (event) => { if (revision === viewRevision && !header.contains(event.target as Node)) { dropdown.hidden = true; toggle.classList.remove("open"); } }, viewListen);
   }
-  const win = getCurrentWindow();
-  document
-    .querySelectorAll<HTMLButtonElement>(".titlebar button")
-    .forEach(
-      (button, index) =>
-        (button.onclick = () =>
-          index === 0
-            ? win.minimize()
-            : index === 1
-              ? win.toggleMaximize()
-              : win.close()),
-    );
   document.querySelector<HTMLButtonElement>("#focusMode")?.addEventListener("click", () => {
     document.querySelector<HTMLElement>(".app-shell")?.classList.toggle("focus-mode");
   });
@@ -2123,7 +2384,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       const changed = threads.map((thread) => `${thread.peer_id}:${thread.updated_at}:${thread.unread || 0}`).join("|") !== dmState.threads.map((thread) => `${thread.peer_id}:${thread.updated_at}:${thread.unread || 0}`).join("|");
       if (!active && changed && homePane.kind !== "dm") { void shellView(0, "", true); return; }
     } catch {}
-    window.setTimeout(pollDirectNotifications, 3000);
+    window.setTimeout(pollDirectNotifications, document.hidden ? 6000 : 3000);
   };
   window.setTimeout(pollDirectNotifications, 3000);
 
@@ -2318,7 +2579,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       return;
     }
     closeAppContextMenu();
-  });
+  }, viewListen);
   document
     .querySelectorAll<HTMLButtonElement>("[data-channel]")
     .forEach(
@@ -2552,7 +2813,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       const ownAbout = await loadProfileAbout(user.id);
       const settings = modal(
         "Настройки профиля",
-        `<div class="settings-layout"><aside class="settings-sidebar"><div class="settings-user"><div class="avatar">${avatar(user)}</div><span><b>${esc(user.name)}</b><small>${esc(user.login)}</small></span></div><button type="button" data-settings-tab="account">Мой аккаунт</button><button type="button" data-settings-tab="voice">Голос и видео</button><button type="button" data-settings-tab="notifications">Уведомления</button><button type="button" data-settings-tab="appearance">Внешний вид</button><button type="button" class="danger-link" id="settingsLogout">Выйти</button></aside><div class="settings-pages"><section data-settings-panel="account"><h2>Мой аккаунт</h2><div class="account-preview"><div class="avatar"><img id="avatarPreview" ${user.avatar ? `src="${esc(assetUrl(user.avatar))}"` : ""} alt=""></div><div><b>${esc(user.name)}</b><small>${esc(user.login)} · ID ${user.id}</small></div></div><label>Отображаемое имя<input name="name" maxlength="40" value="${esc(user.name)}" required></label><label class="profile-about-editor">О себе <small>До 190 символов · видно участникам в карточке профиля</small><textarea name="about" maxlength="190" placeholder="Например: люблю кооперативы, котов и ночные посиделки ✨">${esc(ownAbout)}</textarea><span class="about-counter" data-about-counter>${ownAbout.length}/190</span></label><label>Новая аватарка <small>JPG, PNG, WEBP или GIF до 5 МБ</small><input name="avatar" data-preview="#avatarPreview" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label></section><section data-settings-panel="voice"><h2>Голос и видео</h2><p>Выберите устройства и способ активации микрофона.</p><div class="device-grid"><label>Микрофон<select name="microphone">${options("audioinput", localStorage.getItem("kitchat_microphone") || "")}</select></label><label>Динамики<select name="speaker">${options("audiooutput", localStorage.getItem("kitchat_speaker") || "")}</select></label><label>Камера<select name="camera">${options("videoinput", localStorage.getItem("kitchat_camera") || "")}</select></label></div><div class="device-test"><video id="cameraPreview" muted autoplay playsinline></video><div><b>Проверка устройств</b><small>Вы увидите камеру и уровень микрофона до сохранения.</small><div class="mic-meter"><i id="micMeter"></i></div><button id="testDevices" type="button">Проверить микрофон и камеру</button></div></div><div class="range-grid"><label>Громкость микрофона<input name="mic_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_mic_volume") || "100"}"></label><label>Громкость динамиков<input name="speaker_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_speaker_volume") || "100"}"></label></div><h3>Режим ввода</h3><div class="input-mode"><label><input name="input_mode" type="radio" value="voice" ${localStorage.getItem("kitchat_input_mode") !== "ptt" ? "checked" : ""}><span><b>Активация по голосу</b><small>Микрофон включается автоматически</small></span></label><label><input name="input_mode" type="radio" value="ptt" ${localStorage.getItem("kitchat_input_mode") === "ptt" ? "checked" : ""}><span><b>Режим рации</b><small>Удерживайте выбранную клавишу, чтобы говорить</small></span></label></div><label>Клавиша рации<input name="ptt_key" value="${esc(localStorage.getItem("kitchat_ptt_key") || "Space")}" readonly></label><label class="check-setting"><input name="noise" type="checkbox" ${localStorage.getItem("kitchat_noise") !== "0" ? "checked" : ""}><span><b>Шумоподавление</b><small>Уменьшает постоянный фоновый шум</small></span></label><label class="check-setting"><input name="echo" type="checkbox" ${localStorage.getItem("kitchat_echo") !== "0" ? "checked" : ""}><span><b>Эхоподавление</b><small>Убирает звук динамиков из микрофона</small></span></label><label class="check-setting"><input name="gain" type="checkbox" ${localStorage.getItem("kitchat_gain") !== "0" ? "checked" : ""}><span><b>Автоматическая регулировка усиления</b><small>Выравнивает громкость голоса</small></span></label></section><section data-settings-panel="notifications"><h2>Уведомления</h2><p>Получайте сообщения и заявки, даже когда Kitchat работает в фоне.</p><label class="check-setting"><input name="notifications" type="checkbox" ${localStorage.getItem("kitchat_notifications") !== "0" ? "checked" : ""}><span><b>Системные уведомления</b><small>Windows и macOS попросят разрешение при первом запуске</small></span></label><div class="notification-test-card"><span>${ico("bell")}</span><div><b>Проверка уведомлений</b><small id="notificationTestStatus">Отправьте тест и убедитесь, что система показывает его.</small></div><button id="testNotification" type="button">Отправить тест</button></div><label class="check-setting"><input name="sounds" type="checkbox" ${localStorage.getItem("kitchat_sounds") !== "0" ? "checked" : ""}><span><b>Звуки интерфейса</b><small>Подключение, сообщения и трансляции</small></span></label></section><section data-settings-panel="appearance"><h2>Внешний вид</h2><p>Выберите оформление Kitchat.</p><div class="theme-picker">${([['standard','Стандартный','Оригинальное тёмное оформление Kitchat'],['pink','Фиолетовый','Мягкое сливово-фиолетовое оформление'],['hotpink','Ярко-розовый','Насыщенный hot-pink интерфейс'],['light','Светлая','Светлый и воздушный интерфейс'],['aurora','Северное сияние','Тёмная бирюзово-зелёная тема']] as const).map(([value,title,description]) => `<label class="theme-option theme-${value}"><input type="radio" name="theme" value="${value}" ${(localStorage.getItem("kitchat_theme") || "standard") === value ? "checked" : ""}><span class="theme-preview"><i></i><i></i><i></i></span><span><b>${title}</b><small>${description}</small></span></label>`).join("")}</div><label class="check-setting"><input name="compact" type="checkbox" ${localStorage.getItem("kitchat_compact") === "1" ? "checked" : ""}><span><b>Компактный режим</b><small>Больше сообщений на экране</small></span></label></section></div></div>`,
+        `<div class="settings-layout"><aside class="settings-sidebar"><div class="settings-user"><div class="avatar">${avatar(user)}</div><span><b>${esc(user.name)}</b><small>${esc(user.login)}</small></span></div><button type="button" data-settings-tab="account">Мой аккаунт</button><button type="button" data-settings-tab="voice">Голос и видео</button><button type="button" data-settings-tab="notifications">Уведомления</button><button type="button" data-settings-tab="appearance">Внешний вид</button><button type="button" class="danger-link" id="settingsLogout">Выйти</button></aside><div class="settings-pages"><section data-settings-panel="account"><h2>Мой аккаунт</h2><div class="account-preview"><div class="avatar"><img id="avatarPreview" ${user.avatar ? `src="${esc(assetUrl(user.avatar))}"` : ""} alt=""></div><div><b>${esc(user.name)}</b><small>${esc(user.login)} · ID ${user.id}</small></div></div><label>Отображаемое имя<input name="name" maxlength="40" value="${esc(user.name)}" required></label><label class="profile-about-editor">О себе <small>До 190 символов · видно участникам в карточке профиля</small><textarea name="about" maxlength="190" placeholder="Например: люблю кооперативы, котов и ночные посиделки ✨">${esc(ownAbout)}</textarea><span class="about-counter" data-about-counter>${ownAbout.length}/190</span></label><label>Новая аватарка <small>JPG, PNG, WEBP или GIF до 5 МБ</small><input name="avatar" data-preview="#avatarPreview" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label></section><section data-settings-panel="voice"><h2>Голос и видео</h2><p>Выберите устройства и способ активации микрофона.</p><div class="device-grid"><label>Микрофон<select name="microphone">${options("audioinput", localStorage.getItem("kitchat_microphone") || "")}</select></label><label>Динамики<select name="speaker">${options("audiooutput", localStorage.getItem("kitchat_speaker") || "")}</select></label><label>Камера<select name="camera">${options("videoinput", localStorage.getItem("kitchat_camera") || "")}</select></label></div><div class="device-test"><video id="cameraPreview" muted autoplay playsinline></video><div><b>Проверка устройств</b><small>Вы увидите камеру и уровень микрофона до сохранения.</small><div class="mic-meter"><i id="micMeter"></i></div><button id="testDevices" type="button">Проверить микрофон и камеру</button></div></div><div class="range-grid"><label>Громкость микрофона<input name="mic_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_mic_volume") || "100"}"></label><label>Громкость динамиков<input name="speaker_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_speaker_volume") || "100"}"></label></div><h3>Режим ввода</h3><div class="input-mode"><label><input name="input_mode" type="radio" value="voice" ${localStorage.getItem("kitchat_input_mode") !== "ptt" ? "checked" : ""}><span><b>Активация по голосу</b><small>Микрофон включается автоматически</small></span></label><label><input name="input_mode" type="radio" value="ptt" ${localStorage.getItem("kitchat_input_mode") === "ptt" ? "checked" : ""}><span><b>Режим рации</b><small>Удерживайте выбранную клавишу, чтобы говорить</small></span></label></div><label>Клавиша рации<input name="ptt_key" value="${esc(localStorage.getItem("kitchat_ptt_key") || "Space")}" readonly></label><label class="check-setting"><input name="noise" type="checkbox" ${localStorage.getItem("kitchat_noise") !== "0" ? "checked" : ""}><span><b>Шумоподавление</b><small>Уменьшает постоянный фоновый шум</small></span></label><label class="check-setting"><input name="echo" type="checkbox" ${localStorage.getItem("kitchat_echo") !== "0" ? "checked" : ""}><span><b>Эхоподавление</b><small>Убирает звук динамиков из микрофона</small></span></label><label class="check-setting"><input name="gain" type="checkbox" ${localStorage.getItem("kitchat_gain") !== "0" ? "checked" : ""}><span><b>Автоматическая регулировка усиления</b><small>Выравнивает громкость голоса</small></span></label></section><section data-settings-panel="notifications"><h2>Уведомления</h2><p>Получайте сообщения и заявки, даже когда Kitchat работает в фоне.</p><label class="check-setting"><input name="notifications" type="checkbox" ${localStorage.getItem("kitchat_notifications") !== "0" ? "checked" : ""}><span><b>Системные уведомления</b><small>Windows и macOS попросят разрешение при первом запуске</small></span></label><div class="notification-test-card"><span>${ico("bell")}</span><div><b>Проверка уведомлений</b><small id="notificationTestStatus">Отправьте тест и убедитесь, что система показывает его.</small></div><button id="testNotification" type="button">Отправить тест</button></div><label class="check-setting"><input name="sounds" type="checkbox" ${localStorage.getItem("kitchat_sounds") !== "0" ? "checked" : ""}><span><b>Звуки интерфейса</b><small>Подключение, сообщения и трансляции</small></span></label></section><section data-settings-panel="appearance"><h2>Внешний вид</h2><p>Выберите оформление Kitchat.</p><div class="theme-picker">${([['standard','Стандартный','Оригинальное тёмное оформление Kitchat'],['pink','Фиолетовый','Мягкое сливово-фиолетовое оформление'],['hotpink','Ярко-розовый','Светлый розовый с лепестками'],['light','Светлая','Светлый и воздушный интерфейс'],['aurora','Северное сияние','Тёмная бирюзово-зелёная тема'],['sunset','Закат','Тёплый оранжево-коралловый вечер']] as const).map(([value,title,description]) => `<label class="theme-option theme-${value}"><input type="radio" name="theme" value="${value}" ${(localStorage.getItem("kitchat_theme") || "standard") === value ? "checked" : ""}><span class="theme-preview"><i></i><i></i><i></i></span><span><b>${title}</b><small>${description}</small></span></label>`).join("")}</div><label class="check-setting"><input name="compact" type="checkbox" ${localStorage.getItem("kitchat_compact") === "1" ? "checked" : ""}><span><b>Компактный режим</b><small>Больше сообщений на экране</small></span></label></section></div></div>`,
         "Сохранить",
         async (form) => {
           const values = new FormData(form);
@@ -2571,6 +2832,9 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           localStorage.setItem("kitchat_gain", values.has("gain") ? "1" : "0");
           localStorage.setItem("kitchat_camera_mirror", values.has("camera_mirror") ? "1" : "0");
           localStorage.setItem("kitchat_stream_fps", String(values.get("stream_fps") || "30"));
+          localStorage.setItem("kitchat_stream_res", String(values.get("stream_res") || "1080"));
+          localStorage.setItem("kitchat_stream_content", String(values.get("stream_content") || "motion"));
+          localStorage.setItem("kitchat_stream_codec", String(values.get("stream_codec") || "h264"));
           localStorage.setItem("kitchat_screen_share_mode", String(values.get("screen_share_mode") || "webview"));
           localStorage.setItem("kitchat_compact", values.has("compact") ? "1" : "0");
           const selectedTheme = String(values.get("theme") || "standard");
@@ -2643,8 +2907,9 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       };
       settings.querySelector<HTMLElement>('[data-settings-panel="account"]')?.insertAdjacentHTML(
         "beforeend",
-        `<div class="app-version-card"><span>${ico("info")}</span><div><b>Kitchat ${esc(appVersion)}</b><small>Версия приложения · P2P-звонки</small></div></div>`,
+        `<div class="app-version-card"><span>${ico("info")}</span><div><b>Kitchat ${esc(appVersion)}</b><small>Версия приложения · обновляется автоматически в фоне</small></div><button type="button" id="checkUpdatesNow">Проверить обновления</button></div>`,
       );
+      settings.querySelector<HTMLButtonElement>("#checkUpdatesNow")?.addEventListener("click", () => void checkForUpdates(true));
       settings.querySelectorAll<HTMLInputElement>('input[name="theme"]').forEach((input) => {
         input.addEventListener("change", () => {
           if (!input.checked) return;
@@ -2659,7 +2924,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
         notificationsInput.checked = localStorage.getItem("kitchat_notifications") !== "0";
       }
       settings.querySelector<HTMLElement>('[data-settings-panel="appearance"]')?.insertAdjacentHTML("beforeend", `<label class="check-setting"><input name="low_performance" type="checkbox" ${localStorage.getItem("kitchat_low_performance") === "1" ? "checked" : ""}><span><b>Экономия ресурсов</b><small>Камера 360p / 15 FPS, экран до 720p / 15 FPS, меньше эффектов. Параметры видео применяются при следующем включении.</small></span></label>`);
-      settings.querySelector<HTMLElement>('[data-settings-panel="voice"]')?.querySelector(".range-grid")?.insertAdjacentHTML("afterend", `<label>Демонстрация экрана<select name="screen_share_mode"><option value="webview" ${localStorage.getItem("kitchat_screen_share_mode") !== "native" ? "selected" : ""}>Совместимый WebView2 — рекомендуется</option><option value="native" ${localStorage.getItem("kitchat_screen_share_mode") === "native" ? "selected" : ""}>Нативный H.264 (WGC) — тестовый</option></select><small>Совместимый режим открывает системный выбор окна и автоматически использует доступный кодер Windows.</small></label><label>Плавность трансляции<select name="stream_fps">${[15,30,60].map(fps => `<option value="${fps}" ${streamProfile(localStorage.getItem("kitchat_stream_fps"), false).fps === fps ? "selected" : ""}>${fps} FPS${fps === 60 ? " — плавное движение" : fps === 30 ? " — сбалансированно" : " — меньше нагрузка"}</option>`).join("")}</select><small>Применяется при следующем запуске. Экономия ресурсов ограничивает частоту до 15 FPS.</small></label>`);
+      settings.querySelector<HTMLElement>('[data-settings-panel="voice"]')?.querySelector(".range-grid")?.insertAdjacentHTML("afterend", `<label>Демонстрация экрана<select name="screen_share_mode"><option value="webview" ${localStorage.getItem("kitchat_screen_share_mode") !== "native" ? "selected" : ""}>Совместимый WebView2 — рекомендуется</option>${document.body.classList.contains("platform-mac") ? "" : `<option value="native" ${localStorage.getItem("kitchat_screen_share_mode") === "native" ? "selected" : ""}>Нативный H.264 (WGC) — тестовый</option>`}</select><small>Совместимый режим открывает системный выбор окна и автоматически использует доступный кодер Windows.</small></label><label>Плавность трансляции<select name="stream_fps">${[15,30,60].map(fps => `<option value="${fps}" ${streamProfile(localStorage.getItem("kitchat_stream_fps"), false).fps === fps ? "selected" : ""}>${fps} FPS${fps === 60 ? " — плавное движение" : fps === 30 ? " — сбалансированно" : " — меньше нагрузка"}</option>`).join("")}</select><small>Во время звонка качество можно менять прямо на панели управления — без перезапуска трансляции.</small></label><label>Разрешение трансляции<select name="stream_res">${["720", "1080", "1440"].map((res) => `<option value="${res}" ${(localStorage.getItem("kitchat_stream_res") || "1080") === res ? "selected" : ""}>${res}p</option>`).join("")}</select></label><label>Что вы показываете<select name="stream_content"><option value="motion" ${localStorage.getItem("kitchat_stream_content") !== "detail" ? "selected" : ""}>Игры и видео — приоритет плавности</option><option value="detail" ${localStorage.getItem("kitchat_stream_content") === "detail" ? "selected" : ""}>Текст и код — приоритет чёткости</option></select></label><label>Видеокодек трансляции<select name="stream_codec"><option value="h264" ${(localStorage.getItem("kitchat_stream_codec") || "h264") === "h264" ? "selected" : ""}>H.264 — аппаратный, рекомендуется</option><option value="vp9" ${localStorage.getItem("kitchat_stream_codec") === "vp9" ? "selected" : ""}>VP9 — меньше трафика, выше нагрузка</option><option value="auto" ${localStorage.getItem("kitchat_stream_codec") === "auto" ? "selected" : ""}>Автоматически (VP8)</option></select><small>Видео идёт напрямую между участниками (P2P) и не нагружает сервер.</small></label>`);
       settings.querySelector<HTMLElement>('[data-settings-panel="voice"]')?.querySelector(".device-test")?.insertAdjacentHTML("afterend", `<label class="check-setting"><input name="camera_mirror" type="checkbox" ${cameraPreviewMirrored() ? "checked" : ""}><span><b>Зеркальное превью камеры</b><small>Отражает только ваше изображение на этом компьютере. Другие участники видят камеру без отражения.</small></span></label>`);
       const cameraMirrorInput = settings.querySelector<HTMLInputElement>('[name="camera_mirror"]');
       const cameraPreview = settings.querySelector<HTMLVideoElement>("#cameraPreview");
@@ -2768,7 +3033,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           button.dataset.createChannel === "voice"
             ? "Новый голосовой канал"
             : "Новый текстовый канал",
-          `<div class="creation-intro channel-create-intro"><div class="creation-orb">${button.dataset.createChannel === "voice" ? "◖" : "#"}</div><div><p>${button.dataset.createChannel === "voice" ? "Голос, камера и демонстрация экрана через P2P." : "Текстовый канал для сообщений, файлов, GIF и стикеров."}</p><small>Канал появится в соответствующем разделе сервера.</small></div></div><label>Название канала<input name="name" maxlength="60" placeholder="новый-канал" required></label><label>Описание <small>Необязательно</small><input name="topic" maxlength="180" placeholder="О чём этот канал"></label>${button.dataset.createChannel === "voice" ? `<div class="voice-mode-picker"><label><input type="radio" name="voice_mode" value="p2p" checked><span><b>P2P-звонок</b><small>Прямая голосовая и видеосвязь, камера и демонстрация экрана.</small></span></label></div>` : ""}`,
+          `<div class="creation-intro channel-create-intro"><div class="creation-orb">${svgIcon(button.dataset.createChannel === "voice" ? "volume" : "hash")}</div><div><p>${button.dataset.createChannel === "voice" ? "Голос, камера и демонстрация экрана через P2P." : "Текстовый канал для сообщений, файлов, GIF и стикеров."}</p><small>Канал появится в соответствующем разделе сервера.</small></div></div><label>Название канала<input name="name" maxlength="60" placeholder="новый-канал" required></label><label>Описание <small>Необязательно</small><input name="topic" maxlength="180" placeholder="О чём этот канал"></label>${button.dataset.createChannel === "voice" ? `<div class="voice-mode-picker"><label><input type="radio" name="voice_mode" value="p2p" checked><span><b>P2P-звонок</b><small>Прямая голосовая и видеосвязь, камера и демонстрация экрана.</small></span></label></div>` : ""}`,
           "Создать канал",
           async (form) => {
             const values = new FormData(form);
@@ -2795,7 +3060,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   const renderQueue = () => {
     if (!queue) return;
     queue.hidden = !queuedFiles.length;
-    queue.innerHTML = queuedFiles.map((file, index) => { const image = file.type.startsWith("image/"); const video = file.type.startsWith("video/"); const preview = image ? `<img src="${URL.createObjectURL(file)}" alt="">` : `<span class="queued-file-icon">${video ? "▶" : "▤"}</span>`; return `<div class="queued-file ${image ? "is-image" : ""}"><div class="queued-file-preview">${preview}</div><div class="queued-file-meta"><b>${esc(file.name)}</b><small>${Math.max(1, Math.round(file.size / 1024))} КБ · ${image ? "Изображение" : video ? "Видео" : "Файл"}</small></div><button type="button" data-remove-file="${index}" aria-label="Убрать файл">×</button></div>`; }).join("");
+    queue.innerHTML = queuedFiles.map((file, index) => { const image = file.type.startsWith("image/"); const video = file.type.startsWith("video/"); const preview = image ? `<img src="${URL.createObjectURL(file)}" alt="">` : `<span class="queued-file-icon">${svgIcon(video ? "camera" : "attach")}</span>`; return `<div class="queued-file ${image ? "is-image" : ""}"><div class="queued-file-preview">${preview}</div><div class="queued-file-meta"><b>${esc(file.name)}</b><small>${Math.max(1, Math.round(file.size / 1024))} КБ · ${image ? "Изображение" : video ? "Видео" : "Файл"}</small></div><button type="button" data-remove-file="${index}" aria-label="Убрать файл">×</button></div>`; }).join("");
     queue.querySelectorAll<HTMLButtonElement>("[data-remove-file]").forEach((button) => button.onclick = () => { queuedFiles.splice(Number(button.dataset.removeFile), 1); renderQueue(); updateComposer(); });
   };
   const resizeComposer = () => {
@@ -2931,6 +3196,12 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     currentUser = null;
     authView();
   }
+  if (restoreCallOnRender && activeVoiceRoom && activeVoiceChannel && (active?.id || 0) === activeVoiceServerId) {
+    restoreCallOnRender = false;
+    const chat = document.querySelector<HTMLElement>(".chat");
+    if (chat) { undockCallMini(chat); document.querySelectorAll(".channel.active").forEach((node) => node.classList.remove("active")); document.querySelector(`[data-voice="${activeVoiceChannel}"]`)?.classList.add("active"); }
+    return;
+  }
   if (active && selected) {
     let lastMessageId = state.messages.reduce(
       (max, message) => Math.max(max, message.id),
@@ -2982,6 +3253,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
             "beforeend",
             messageBatchMarkup(unseen, lastRenderedMessage),
           );
+          let fresh = list?.lastElementChild;
+          for (let count = 0; fresh && count < unseen.length; count += 1, fresh = fresh.previousElementSibling) fresh.classList.add("msg-enter");
           lastRenderedMessage = unseen[unseen.length - 1];
           lastMessageId = Math.max(
             lastMessageId,
@@ -3003,7 +3276,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           const presence = document.querySelector<HTMLElement>(
             `.voice-presence[data-channel-id="${channel.id}"]`,
           );
-          if (presence) presence.innerHTML = users.map(voicePerson).join("");
+          if (presence) setMarkup(presence, users.map(voicePerson).join(""));
           const counter = document.querySelector<HTMLElement>(
             `[data-voice="${channel.id}"] small`,
           );
@@ -3012,7 +3285,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
 
       } catch {
       } finally {
-        if (revision === viewRevision) window.setTimeout(pollMessages, 1500);
+        if (revision === viewRevision) window.setTimeout(pollMessages, document.hidden ? 4000 : 1500);
       }
     };
     window.setTimeout(pollMessages, 1500);
@@ -3174,6 +3447,11 @@ document.addEventListener("fullscreenchange", () => {
   }
   document.querySelectorAll<HTMLElement>(".call-stage.controls-hidden").forEach((stage) => stage.classList.remove("controls-hidden"));
 });
+document.addEventListener("click", (event) => {
+  if (!(event.target as HTMLElement).closest("[data-voice-return]") || !activeVoiceChannel || !activeVoiceRoom) return;
+  restoreCallOnRender = true;
+  void shellView(activeVoiceServerId, "");
+});
 document.addEventListener("submit", (event) => {
   if ((event.target as HTMLElement).matches("#messageForm")) playSound("send");
 });
@@ -3203,9 +3481,11 @@ document.addEventListener("change", (event) => {
 });
 document.addEventListener("dblclick", (event) => {
   const tile = (event.target as HTMLElement).closest<HTMLElement>(
-    ".video-tile.has-video",
+    ".video-tile, .p2p-screen-tile:not(.stream-available):not(.pending)",
   );
-  if (tile?.requestFullscreen) void tile.requestFullscreen();
+  if (!tile || (event.target as HTMLElement).closest("button")) return;
+  if (document.fullscreenElement === tile) void document.exitFullscreen();
+  else void tile.requestFullscreen?.();
 });
 async function callViewLiveKit(
   channelId: number,
@@ -3674,7 +3954,7 @@ async function callViewP2P(
 ) {
   if (activeVoiceChannel === channelId) {
     const chat = document.querySelector<HTMLElement>(".chat");
-    if (activeVoiceRoom && chat) { chat.innerHTML = ""; chat.append(activeVoiceRoom); }
+    if (activeVoiceRoom && chat) undockCallMini(chat);
     return;
   }
   if (!(await requestMediaAccess("microphone"))) return;
@@ -3703,7 +3983,7 @@ async function callViewP2P(
   paintActiveVoiceChannel();
   document.querySelectorAll("#voiceDockApp").forEach((node) => node.remove());
   document.querySelector<HTMLElement>(".profile")?.insertAdjacentHTML("beforebegin", dockMarkup());
-  host.innerHTML = `<main class="call-screen embedded p2p-call"><header class="embedded-call-header"><div><b>${esc(name)}</b><small>${esc(serverName)} · P2P · Камера и демонстрация экрана</small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="p2p-screen-grid" id="p2pScreens"></div><div class="video-grid voice-only-grid" id="videoGrid"></div><aside class="roulette-panel" id="roulettePanel" hidden><header><div><small>ВЕЧЕРНИЙ ХАОС</small><b>Рулетка ников</b></div><button type="button" id="rouletteClose" aria-label="Закрыть">×</button></header><div class="roulette-live" id="rouletteLive"><div class="roulette-machine" id="rouletteMachine"><div class="roulette-machine-light"></div><div class="roulette-reel-block word-reel"><small>СЛОВО</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteWordReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Добавьте слова</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-link">×</div><div class="roulette-reel-block user-reel"><small>УЧАСТНИК</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteUserReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Кто попадётся?</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-spin-status" id="rouletteSpinStatus">Готовы к хаосу</div></div><div class="roulette-result" id="rouletteResult" aria-live="polite"></div></div><div class="roulette-locked" id="rouletteLocked"></div><form class="roulette-word-form" id="rouletteWordForm"><label><span>Слово / ник</span><input name="word" maxlength="32" placeholder="например: ПЕЛЬМЕНЬ" required></label><div class="roulette-form-row"><label><span>На сколько</span><select name="duration"><option value="30">30 сек</option><option value="60" selected>1 мин</option><option value="180">3 мин</option><option value="300">5 мин</option><option value="600">10 мин</option></select></label><label class="roulette-color"><span>Цвет</span><input name="color" type="color" value="#a970ff"></label><button type="submit">Добавить</button></div></form><div class="roulette-word-list" id="rouletteWordList"></div><button type="button" class="roulette-spin" id="rouletteSpin">КРУТИТЬ РУЛЕТКУ</button><div class="roulette-history" id="rouletteHistory"></div></aside></section><footer class="call-controls"><button id="callMic" title="Выключить микрофон">${ico("mic")}</button><button id="callCamera" title="Включить камеру">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button><button id="callRoulette" title="Рулетка ников">🎡</button><button id="callDeafen" title="Не слышать других">${ico("headphones")}</button><button id="callFullscreen" title="Развернуть сцену">${ico("focus")}</button><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
+  host.innerHTML = `<main class="call-screen embedded p2p-call"><header class="embedded-call-header"><div><b>${esc(name)}</b><small>${esc(serverName)} · <time data-voice-duration>${voiceDurationText()}</time></small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="p2p-screen-grid" id="p2pScreens"></div><div class="video-grid voice-only-grid" id="videoGrid"></div><div class="call-reactions-layer" id="callReactions"></div><aside class="roulette-panel" id="roulettePanel" hidden><header><div><small>ВЕЧЕРНИЙ ХАОС</small><b>Рулетка ников</b></div><button type="button" id="rouletteClose" aria-label="Закрыть">×</button></header><div class="roulette-live" id="rouletteLive"><div class="roulette-machine" id="rouletteMachine"><div class="roulette-machine-light"></div><div class="roulette-reel-block word-reel"><small>СЛОВО</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteWordReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Добавьте слова</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-link">×</div><div class="roulette-reel-block user-reel"><small>УЧАСТНИК</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteUserReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Кто попадётся?</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-spin-status" id="rouletteSpinStatus">Готовы к хаосу</div></div><div class="roulette-result" id="rouletteResult" aria-live="polite"></div></div><div class="roulette-locked" id="rouletteLocked"></div><form class="roulette-word-form" id="rouletteWordForm"><label><span>Слово / ник</span><input name="word" maxlength="32" placeholder="например: ПЕЛЬМЕНЬ" required></label><div class="roulette-form-row"><label><span>На сколько</span><select name="duration"><option value="30">30 сек</option><option value="60" selected>1 мин</option><option value="180">3 мин</option><option value="300">5 мин</option><option value="600">10 мин</option></select></label><label class="roulette-color"><span>Цвет</span><input name="color" type="color" value="#a970ff"></label><button type="submit">Добавить</button></div></form><div class="roulette-word-list" id="rouletteWordList"></div><button type="button" class="roulette-spin" id="rouletteSpin">КРУТИТЬ РУЛЕТКУ</button><div class="roulette-history" id="rouletteHistory"></div></aside></section><footer class="call-controls"><div class="call-controls-group"><button id="callMic" title="Микрофон · Ctrl+Shift+M">${ico("mic")}</button><button id="callDeafen" title="Звук · Ctrl+Shift+D">${ico("headphones")}</button></div><div class="call-controls-group"><button id="callCamera" title="Камера">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button></div><div class="call-controls-group"><span class="kc-react-wrap"><button id="callReact" title="Реакции">${ico("react")}</button></span><button id="callRoulette" title="Рулетка ников">${ico("dice")}</button><button id="callFullscreen" title="Сцена на весь экран">${ico("focus")}</button></div><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
   activeVoiceRoom = host.querySelector(".call-screen");
   const callHeader = host.querySelector<HTMLElement>(".embedded-call-header")!;
   const roomState = host.querySelector<HTMLElement>("#roomState")!;
@@ -3714,15 +3994,120 @@ async function callViewP2P(
   gridViewButton.id = "callGridView";
   gridViewButton.hidden = true;
   gridViewButton.innerHTML = `${ico("grid_view")}<span>Сетка</span>`;
-  callHeaderActions.append(gridViewButton, roomState);
+  const filmstripButton = document.createElement("button");
+  filmstripButton.type = "button";
+  filmstripButton.hidden = true;
+  filmstripButton.innerHTML = `${ico("panel")}<span>Участники</span>`;
+  const minimizeButton = document.createElement("button");
+  minimizeButton.type = "button";
+  minimizeButton.title = "Свернуть в мини-плеер";
+  minimizeButton.innerHTML = `${ico("pip")}<span>Свернуть</span>`;
+  const popoutButton = document.createElement("button");
+  popoutButton.type = "button";
+  popoutButton.title = "Плеер поверх всех окон";
+  popoutButton.innerHTML = `${ico("popout")}<span>Поверх окон</span>`;
+  callHeaderActions.append(gridViewButton, filmstripButton, minimizeButton, popoutButton, roomState);
   callHeader.append(callHeaderActions);
+  activeVoiceServerId = serverId;
+  const stage = host.querySelector<HTMLElement>("#callStage")!;
+  const screensBox = host.querySelector<HTMLElement>("#p2pScreens")!;
+  const gridBox = host.querySelector<HTMLElement>("#videoGrid")!;
+  const autoFocusedScreens = new Set<string>();
+  const layoutStage = () => {
+    const tiles = [...stage.querySelectorAll<HTMLElement>("#p2pScreens > .p2p-screen-tile, #videoGrid > .video-tile")];
+    const style = getComputedStyle(stage);
+    const width = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const height = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const gap = 10;
+    if (!tiles.length || width < 40 || height < 40) return;
+    const spot = gridBox.dataset.spotlight || "";
+    const spotTile = spot.startsWith("user:") ? gridBox.querySelector<HTMLElement>(`[data-p2p-user="${spot.slice(5)}"]`)
+      : spot.startsWith("screen:") ? screensBox.querySelector<HTMLElement>(`[data-p2p-screen="${spot.slice(7)}"]`) : null;
+    stage.classList.toggle("has-spotlight", !!spotTile);
+    tiles.forEach((tile) => {
+      tile.classList.toggle("is-spotlight", tile === spotTile);
+      tile.classList.toggle("is-strip", !!spotTile && tile !== spotTile);
+    });
+    filmstripButton.hidden = !spotTile || tiles.length < 2;
+    if (spotTile) {
+      const strip = tiles.length - 1;
+      const stripHidden = !strip || stage.classList.contains("strip-hidden") || !!stage.closest(".kc-call-mini");
+      const stripTileH = stripHidden ? 0 : Math.min(132, Math.max(72, height * .18), ((width - gap * (strip - 1)) / strip) * 9 / 16);
+      stage.style.setProperty("--strip-w", `${Math.floor(stripTileH * 16 / 9)}px`);
+      stage.style.setProperty("--spot-h", `${Math.floor(height - (stripHidden ? 0 : stripTileH + gap))}px`);
+      return;
+    }
+    // Grid: pick the column count that gives every 16:9 tile the largest size.
+    let best = 0;
+    for (let cols = 1; cols <= tiles.length; cols += 1) {
+      const rows = Math.ceil(tiles.length / cols);
+      best = Math.max(best, Math.min((width - gap * (cols - 1)) / cols, ((height - gap * (rows - 1)) / rows) * 16 / 9));
+    }
+    stage.style.setProperty("--tile-w", `${Math.floor(Math.max(120, best))}px`);
+  };
+  const screenFocusId = (key: string) => key === "self" ? -me.id : -Number(key);
+  const syncStageMode = () => {
+    stage.classList.toggle("has-screens", screensBox.childElementCount > 0);
+    // Like Discord: a stream you start watching opens in the spotlight once.
+    for (const tile of screensBox.querySelectorAll<HTMLElement>(".p2p-screen-tile")) {
+      const key = tile.dataset.p2pScreen || "";
+      if (key === "self" || !tile.querySelector("video") || autoFocusedScreens.has(key)) continue;
+      autoFocusedScreens.add(key);
+      if (focusedUserId === null) focusedUserId = screenFocusId(key);
+    }
+    for (const key of [...autoFocusedScreens]) if (!screensBox.querySelector(`[data-p2p-screen="${key}"]`)) autoFocusedScreens.delete(key);
+    applyFocusedLayout(rouletteUsers);
+    layoutStage();
+  };
+  new MutationObserver(syncStageMode).observe(screensBox, { childList: true, subtree: true });
+  new MutationObserver(layoutStage).observe(gridBox, { childList: true, attributes: true, attributeFilter: ["data-spotlight"] });
+  new ResizeObserver(layoutStage).observe(stage);
+  filmstripButton.onclick = () => {
+    const hidden = stage.classList.toggle("strip-hidden");
+    filmstripButton.querySelector("span:last-child")!.textContent = hidden ? "Показать участников" : "Участники";
+    layoutStage();
+  };
+  minimizeButton.onclick = () => { callMiniVisible = true; void shellView(serverId, ""); };
+  popoutButton.onclick = async () => { callMiniVisible = true; await shellView(serverId, ""); await enterWindowMini(); };
+  // Capture phase: tile buttons must not also toggle the spotlight.
+  stage.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    const fullscreen = target.closest<HTMLElement>("[data-tile-fullscreen]");
+    if (fullscreen) {
+      event.stopPropagation();
+      const tile = fullscreen.closest<HTMLElement>(".video-tile,.p2p-screen-tile");
+      if (document.fullscreenElement === tile) void document.exitFullscreen();
+      else void tile?.requestFullscreen();
+      return;
+    }
+    const toggle = target.closest<HTMLElement>("[data-toggle-preview]");
+    const previewTile = toggle?.closest<HTMLElement>(".p2p-screen-tile");
+    if (toggle && previewTile) {
+      const hidden = previewTile.classList.toggle("preview-hidden");
+      toggle.title = hidden ? "Показать превью" : "Скрыть превью";
+      const video = previewTile.querySelector<HTMLVideoElement>("video");
+      if (video) { if (hidden) video.pause(); else void video.play().catch(() => {}); }
+      return;
+    }
+    if (target.closest("button,select,input,label")) return;
+    const screen = target.closest<HTMLElement>(".p2p-screen-tile");
+    if (!screen || screen.classList.contains("stream-available") || screen.classList.contains("pending")) return;
+    const id = screenFocusId(screen.dataset.p2pScreen || "");
+    focusedUserId = focusedUserId === id ? null : id;
+    applyFocusedLayout(rouletteUsers);
+  }, true);
   const shareControl = host.querySelector("#callShare");
-  shareControl?.insertAdjacentHTML("afterend", '<label class="stream-fps-control"><span>Трансляция</span><select id="streamFps" aria-label="Частота кадров трансляции"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>');
+  shareControl?.insertAdjacentHTML("afterend", `<label class="stream-fps-control" title="Качество трансляции — меняется прямо во время стрима"><span>Трансляция</span><select id="streamFps" aria-label="Качество трансляции">${STREAM_QUALITY_PRESETS.map(([res, fps]) => `<option value="${res}-${fps}">${res}p · ${fps}</option>`).join("")}</select></label>`);
   const fpsSelect = host.querySelector<HTMLSelectElement>("#streamFps")!;
-  fpsSelect.value = String(streamProfile(localStorage.getItem("kitchat_stream_fps"), false).fps);
+  const savedQuality = streamProfile(localStorage.getItem("kitchat_stream_fps"), false, localStorage.getItem("kitchat_stream_res"));
+  fpsSelect.value = `${savedQuality.resolution}-${savedQuality.fps}`;
+  if (!fpsSelect.value) fpsSelect.value = "1080-30";
   fpsSelect.onchange = () => {
-    localStorage.setItem("kitchat_stream_fps", fpsSelect.value);
-    showAppNotice("Качество трансляции", lowResourceMode() ? "В экономии ресурсов действует ограничение 15 FPS. Выключите её для 60 FPS." : "Частота кадров применится при следующем запуске трансляции.");
+    const [res, fps] = fpsSelect.value.split("-");
+    localStorage.setItem("kitchat_stream_res", res);
+    localStorage.setItem("kitchat_stream_fps", fps);
+    if (lowResourceMode()) { showAppNotice("Качество трансляции", "В режиме экономии ресурсов трансляция ограничена 720p · 15. Выключите его в настройках."); return; }
+    void applyScreenQualityLive();
   };
   const peers = new Map<number, RTCPeerConnection>();
   const cameraPeers = new Map<number, RTCPeerConnection>();
@@ -4205,6 +4590,43 @@ async function callViewP2P(
   document.querySelector<HTMLButtonElement>("#callRoulette")!.onclick = () => { roulettePanel.hidden = !roulettePanel.hidden; if (!roulettePanel.hidden) { renderRoulette(); void rouletteBroadcast({ kind: "roulette-hello" }); } };
   document.querySelector<HTMLButtonElement>("#rouletteClose")!.onclick = () => { roulettePanel.hidden = true; };
   document.querySelector<HTMLButtonElement>("#rouletteSpin")!.onclick = () => void startRouletteSpin();
+  const CALL_REACTIONS = ["👍", "😂", "🔥", "❤️", "😮", "🎉", "👏", "💀"];
+  const reactionsLayer = host.querySelector<HTMLElement>("#callReactions")!;
+  let lastReactionAt = 0;
+  const showReaction = (userId: number, emoji: string) => {
+    if (!CALL_REACTIONS.includes(emoji) || !reactionsLayer.isConnected) return;
+    if (reactionsLayer.childElementCount > 24) reactionsLayer.firstElementChild?.remove();
+    const stageBox = stage.getBoundingClientRect();
+    const tileBox = document.querySelector<HTMLElement>(`[data-p2p-user="${userId}"]`)?.getBoundingClientRect();
+    const node = document.createElement("span");
+    node.className = "kc-reaction";
+    node.textContent = emoji;
+    if (userId !== me.id) node.insertAdjacentHTML("beforeend", `<small>${esc(voiceDirectory.get(userId)?.name || "Участник")}</small>`);
+    const x = tileBox && tileBox.width ? tileBox.left - stageBox.left + tileBox.width * (.3 + Math.random() * .4) : stageBox.width * (.2 + Math.random() * .6);
+    node.style.left = `${Math.round(x - 20)}px`;
+    node.style.bottom = tileBox && tileBox.height ? `${Math.round(stageBox.bottom - tileBox.bottom + 16)}px` : "12%";
+    node.style.setProperty("--drift", `${Math.round((Math.random() - .5) * 90)}px`);
+    reactionsLayer.append(node);
+    window.setTimeout(() => node.remove(), 2500);
+  };
+  const reactButton = host.querySelector<HTMLButtonElement>("#callReact")!;
+  reactButton.onclick = (event) => {
+    event.stopPropagation();
+    const wrap = reactButton.parentElement!;
+    const existing = wrap.querySelector(".kc-reaction-tray");
+    if (existing) { existing.remove(); return; }
+    wrap.insertAdjacentHTML("beforeend", `<div class="kc-reaction-tray">${CALL_REACTIONS.map((emoji) => `<button type="button" data-reaction="${emoji}">${emoji}</button>`).join("")}</div>`);
+    const tray = wrap.querySelector<HTMLElement>(".kc-reaction-tray")!;
+    tray.onclick = (trayEvent) => {
+      trayEvent.stopPropagation();
+      const emoji = (trayEvent.target as HTMLElement).closest<HTMLElement>("[data-reaction]")?.dataset.reaction || "";
+      if (!emoji || Date.now() - lastReactionAt < 450) return;
+      lastReactionAt = Date.now();
+      showReaction(me.id, emoji);
+      void rouletteBroadcast({ kind: "call-reaction", emoji });
+    };
+    window.setTimeout(() => document.addEventListener("pointerdown", (outside) => { if (!wrap.contains(outside.target as Node)) tray.remove(); }, { once: true }), 0);
+  };
   document.querySelector<HTMLFormElement>("#rouletteWordForm")!.onsubmit = (event) => {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement; const values = new FormData(form);
@@ -4218,16 +4640,24 @@ async function callViewP2P(
   const applyFocusedLayout = (users: VoiceUser[]) => {
     const grid = document.querySelector<HTMLElement>("#videoGrid");
     if (!grid) return;
-    if (document.querySelector("#p2pScreens > *")) focusedUserId = null;
-    focusedUserId = resolveCallFocus(users, focusedUserId);
+    const screens = document.querySelector<HTMLElement>("#p2pScreens");
+    if (focusedUserId !== null && focusedUserId < 0) {
+      const key = -focusedUserId === me.id ? "self" : String(-focusedUserId);
+      if (!screens?.querySelector(`[data-p2p-screen="${key}"]`)) focusedUserId = null;
+    } else if (screens?.childElementCount) {
+      if (focusedUserId !== null && !users.some((user) => user.id === focusedUserId)) focusedUserId = null;
+    } else {
+      focusedUserId = resolveCallFocus(users, focusedUserId);
+    }
     const focused = focusedUserId !== null;
+    const spotlight = !focused ? "" : focusedUserId! < 0 ? `screen:${-focusedUserId! === me.id ? "self" : -focusedUserId!}` : `user:${focusedUserId}`;
     grid.classList.toggle("focused-view", focused);
     grid.querySelectorAll<HTMLElement>("[data-p2p-user]").forEach((tile) => {
       const selected = focused && Number(tile.dataset.p2pUser) === focusedUserId;
       tile.classList.toggle("is-focused", selected);
-      tile.classList.toggle("is-thumbnail", focused && !selected);
       tile.setAttribute("aria-pressed", String(selected));
     });
+    if (grid.dataset.spotlight !== spotlight) grid.dataset.spotlight = spotlight;
     const button = document.querySelector<HTMLButtonElement>("#callGridView");
     if (button) {
       button.hidden = !focused;
@@ -4235,7 +4665,7 @@ async function callViewP2P(
     }
   };
   const focusUserTile = (userId: number) => {
-    focusedUserId = userId;
+    focusedUserId = focusedUserId === userId ? null : userId;
     applyFocusedLayout(rouletteUsers);
   };
   const attachCameraVideo = (userId: number) => {
@@ -4279,7 +4709,7 @@ async function callViewP2P(
             if (event.key !== "Enter" && event.key !== " ") return;
             event.preventDefault(); focusUserTile(Number(tile!.dataset.p2pUser));
           });
-          tile.innerHTML = '<div class="voice-avatar"><span class="avatar"></span></div><footer></footer>';
+          tile.innerHTML = `<div class="voice-avatar"><span class="avatar"></span></div><button type="button" class="tile-fullscreen" data-tile-fullscreen title="На весь экран">${ico("focus")}</button><footer></footer>`;
           grid.append(tile);
         }
         const hasCamera = !!remoteCameraStreams.get(user.id)?.getVideoTracks().some((track) => track.readyState === "live" && !track.muted);
@@ -4304,7 +4734,7 @@ async function callViewP2P(
       remoteCameraStreams.forEach((_stream, userId) => attachCameraVideo(userId));
     }
     const presence = document.querySelector<HTMLElement>(`.voice-presence[data-channel-id="${channelId}"]`);
-    if (presence) presence.innerHTML = users.map((user) => { const display = rouletteDisplayName(user); return `<div class="voice-person ${user.speaking && !user.muted ? "speaking" : ""}" data-voice-person="${user.id}" ${display.color ? `style="--roulette-user-color:${esc(display.color)}" data-roulette-renamed="1"` : ""}><div class="avatar">${avatar(user)}</div><span>${esc(display.name)}</span><i>${user.sharing ? ico("video-message") : user.deafened ? ico("headphones-off") : user.muted ? ico("mic-off") : ""}</i></div>`; }).join("");
+    if (presence) setMarkup(presence, users.map((user) => { const display = rouletteDisplayName(user); return `<div class="voice-person ${user.speaking && !user.muted ? "speaking" : ""}" data-voice-person="${user.id}" ${display.color ? `style="--roulette-user-color:${esc(display.color)}" data-roulette-renamed="1"` : ""}><div class="avatar">${avatar(user)}</div><span>${esc(display.name)}</span><i>${user.sharing ? ico("video-message") : user.deafened ? ico("headphones-off") : user.muted ? ico("mic-off") : ""}</i></div>`; }).join(""));
     const count = document.querySelector<HTMLElement>(`[data-voice="${channelId}"] small`);
     if (count) count.textContent = `${users.length} в голосовом · P2P`;
   };
@@ -4557,12 +4987,7 @@ async function callViewP2P(
       fallbackScreenStream = stream;
       const sender = pc.addTrack(fallbackScreenCapture.track, stream);
       fallbackScreenSenders.set(id, sender);
-      const parameters = sender.getParameters();
-      parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
-      parameters.encodings[0].maxBitrate = compatibleScreenIsWebView ? 5_000_000 : 3_000_000;
-      parameters.encodings[0].maxFramerate = compatibleScreenIsWebView ? 30 : 15;
-      parameters.encodings[0].priority = "high";
-      void sender.setParameters(parameters).catch(() => {});
+      void tuneScreenSender(pc, sender, fallbackScreenCapture.track);
     }
     pc.onicecandidate = (event) => { if (event.candidate) void signal(id, { kind: "ice", candidate: event.candidate.toJSON() }); };
     pc.ontrack = (event) => {
@@ -4581,12 +5006,13 @@ async function callViewP2P(
           return;
         }
         if (!watchingScreens.has(id)) return;
+        try { (event.receiver as RTCRtpReceiver & { playoutDelayHint?: number }).playoutDelayHint = 0; } catch {}
         const screens = document.querySelector<HTMLElement>("#p2pScreens");
         if (!screens) return;
         screens.querySelector(`[data-p2p-screen="${id}"]`)?.remove();
         const tile = document.createElement("article");
         tile.className = "p2p-screen-tile"; tile.dataset.p2pScreen = String(id);
-        tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Трансляция участника</span><div class="stream-overlay-actions"><button type="button" data-stop-watching title="Перестать смотреть">${ico("phone-down")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
+        tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>${esc(screenUserLabel(id))}</span><div class="stream-overlay-actions"><button type="button" data-stop-watching title="Перестать смотреть">${ico("phone-down")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
         const video = document.createElement("video");
         video.autoplay = true; video.playsInline = true;
         video.srcObject = incoming;
@@ -4803,7 +5229,7 @@ async function callViewP2P(
         if (nativeLocalPreviewPc !== pc || video.videoWidth > 0) return;
         setState("H.264 RTP есть, но кадр не декодирован", `video=${video.videoWidth}x${video.videoHeight} · readyState=${video.readyState} · ${stateLine()}`);
       }, 4000);
-      currentTile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша P2P-трансляция · реальный WebRTC preview</span><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div>`);
+      currentTile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша трансляция · нативный H.264</span><div class="stream-overlay-actions"><button type="button" data-toggle-preview title="Скрыть превью">${ico("eye")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
       currentTile.querySelector<HTMLButtonElement>("[data-stream-fullscreen]")!.onclick = () => document.fullscreenElement === currentTile ? void document.exitFullscreen() : void currentTile.requestFullscreen();
     };
 
@@ -4914,9 +5340,7 @@ async function callViewP2P(
     const pc = await peerFor(id); if (pc.connectionState === 'closed') return;
     const stream = fallbackScreenStream || new MediaStream([track]); fallbackScreenStream = stream;
     const sender = pc.addTrack(track, stream); fallbackScreenSenders.set(id, sender);
-    const parameters = sender.getParameters(); parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
-    parameters.encodings[0].maxBitrate = compatibleScreenIsWebView ? 5_000_000 : 3_000_000; parameters.encodings[0].maxFramerate = compatibleScreenIsWebView ? 30 : 15; parameters.encodings[0].priority = 'high';
-    await sender.setParameters(parameters).catch(() => {}); await requestPeerRenegotiation(id);
+    await tuneScreenSender(pc, sender, track); await requestPeerRenegotiation(id);
   };
   const detachScreenMediaFromPeer = async (id: number) => {
     const pc = peers.get(id); let changed = false;
@@ -4986,7 +5410,7 @@ async function callViewP2P(
     screens.querySelector(`[data-p2p-screen="${id}"]`)?.remove();
     const tile = document.createElement("article");
     tile.className = "p2p-screen-tile"; tile.dataset.p2pScreen = String(id);
-    tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Нативная P2P-трансляция</span><div class="stream-overlay-actions"><button type="button" data-stop-watching title="Перестать смотреть">${ico("phone-down")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
+    tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>${esc(screenUserLabel(id))}</span><div class="stream-overlay-actions"><button type="button" data-stop-watching title="Перестать смотреть">${ico("phone-down")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
     const video = document.createElement("video");
     video.autoplay = true; video.playsInline = true;
     video.srcObject = event.streams[0] || new MediaStream([event.track]);
@@ -5112,7 +5536,20 @@ async function callViewP2P(
     }
     await capture?.stop().catch(() => {});
   };
-  let activeScreenProfile = streamProfile(localStorage.getItem("kitchat_stream_fps"), lowResourceMode());
+  let activeScreenProfile = streamProfile(localStorage.getItem("kitchat_stream_fps"), lowResourceMode(), localStorage.getItem("kitchat_stream_res"));
+  // Smooth, low-latency sending: hardware codec, and in "motion" mode the
+  // encoder lowers resolution instead of dropping frames on a weak uplink.
+  const tuneScreenSender = async (pc: RTCPeerConnection, sender: RTCRtpSender, track: MediaStreamTrack) => {
+    const parameters = sender.getParameters() as RTCRtpSendParameters & { degradationPreference?: string };
+    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    parameters.encodings[0].maxBitrate = compatibleScreenIsWebView ? activeScreenProfile.bitrate : 3_000_000;
+    parameters.encodings[0].maxFramerate = compatibleScreenIsWebView ? activeScreenProfile.fps : 15;
+    parameters.encodings[0].priority = "high";
+    (parameters.encodings[0] as RTCRtpEncodingParameters & { networkPriority?: RTCPriorityType }).networkPriority = "high";
+    parameters.degradationPreference = track.contentHint === "detail" ? "maintain-resolution" : "maintain-framerate";
+    await sender.setParameters(parameters).catch(() => {});
+    preferScreenCodec(pc, sender);
+  };
   const attachFallbackScreenToPeers = async () => {
     const track = fallbackScreenCapture?.track;
     if (!track || track.readyState !== "live") return;
@@ -5128,8 +5565,30 @@ async function callViewP2P(
       parameters.encodings[0].maxFramerate = activeScreenProfile.fps;
       parameters.encodings[0].priority = "high";
       await sender.setParameters(parameters).catch(() => {});
+      if (typeof tuneScreenSender === "function") await tuneScreenSender(pc, sender, track);
       await requestPeerRenegotiation(id);
     }
+  };
+  const applyScreenQualityLive = async () => {
+    activeScreenProfile = streamProfile(localStorage.getItem("kitchat_stream_fps"), lowResourceMode(), localStorage.getItem("kitchat_stream_res"));
+    const track = fallbackScreenCapture?.track;
+    if (!sharing || !compatibleScreenIsWebView || !track || track.readyState !== "live") {
+      showAppNotice("Качество трансляции", `${activeScreenProfile.resolution}p · ${activeScreenProfile.fps} FPS — применится при запуске трансляции`);
+      return;
+    }
+    track.contentHint = localStorage.getItem("kitchat_stream_content") === "detail" ? "detail" : "motion";
+    await track.applyConstraints({
+      width: { ideal: activeScreenProfile.width, max: activeScreenProfile.width },
+      height: { ideal: activeScreenProfile.height, max: activeScreenProfile.height },
+      frameRate: { ideal: activeScreenProfile.fps, max: activeScreenProfile.fps },
+    }).catch((error) => console.warn("Screen constraints rejected", error));
+    for (const [id, sender] of fallbackScreenSenders) {
+      const pc = peers.get(id);
+      if (pc) await tuneScreenSender(pc, sender, track);
+    }
+    const label = document.querySelector<HTMLElement>('[data-p2p-screen="self"] .stream-overlay > span');
+    if (label) label.textContent = `Ваша трансляция · ${activeScreenProfile.resolution}p · ${activeScreenProfile.fps} FPS`;
+    showAppNotice("Качество трансляции", `Теперь ${activeScreenProfile.resolution}p · ${activeScreenProfile.fps} FPS`, "success");
   };
   const stopFallbackScreen = async () => {
     const capture = fallbackScreenCapture;
@@ -5171,7 +5630,7 @@ async function callViewP2P(
       video.autoplay = true; video.muted = true; video.playsInline = true;
       video.srcObject = fallbackScreenStream;
       tile.append(video);
-      tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша трансляция · совместимый режим</span><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div>`);
+      tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша трансляция · совместимый режим</span><div class="stream-overlay-actions"><button type="button" data-toggle-preview title="Скрыть превью">${ico("eye")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
       tile.querySelector<HTMLButtonElement>("[data-stream-fullscreen]")!.onclick = () => document.fullscreenElement === tile ? void document.exitFullscreen() : void tile.requestFullscreen();
     }
   };
@@ -5182,7 +5641,7 @@ async function callViewP2P(
     await stopNativeLocalPreview();
     const track = stream.getVideoTracks()[0];
     if (!track) throw new Error("Windows не передала видеопоток выбранного экрана");
-    track.contentHint = "detail";
+    track.contentHint = localStorage.getItem("kitchat_stream_content") === "detail" ? "detail" : "motion";
     fallbackScreenCapture = { track, stop: () => stream.getTracks().forEach((item) => item.stop()) };
     fallbackScreenStream = new MediaStream([track]);
     compatibleScreenIsWebView = true;
@@ -5195,7 +5654,7 @@ async function callViewP2P(
       video.autoplay = true; video.muted = true; video.playsInline = true;
       video.srcObject = fallbackScreenStream;
       tile.append(video);
-      tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша трансляция · WebView2 · ${activeScreenProfile.fps} FPS</span><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div>`);
+      tile.insertAdjacentHTML("beforeend", `<div class="stream-overlay"><span>Ваша трансляция · ${activeScreenProfile.resolution}p · ${activeScreenProfile.fps} FPS</span><div class="stream-overlay-actions"><button type="button" data-toggle-preview title="Скрыть превью">${ico("eye")}</button><button type="button" data-stream-fullscreen title="На весь экран">${ico("focus")}</button></div></div>`);
       tile.querySelector<HTMLButtonElement>("[data-stream-fullscreen]")!.onclick = () => document.fullscreenElement === tile ? void document.exitFullscreen() : void tile.requestFullscreen();
     }
   };
@@ -5222,7 +5681,7 @@ async function callViewP2P(
     screenBusy = true;
     try {
     if (sharing) { await stopScreen(); return; }
-    activeScreenProfile = streamProfile(localStorage.getItem("kitchat_stream_fps"), lowResourceMode());
+    activeScreenProfile = streamProfile(localStorage.getItem("kitchat_stream_fps"), lowResourceMode(), localStorage.getItem("kitchat_stream_res"));
     const screenSharePreference = localStorage.getItem("kitchat_screen_share_mode") === "native" ? "native" : "webview";
     if (screenSharePreference === "webview") {
       // Call getDisplayMedia directly from the button handler. WebView2 requires
@@ -5277,7 +5736,7 @@ async function callViewP2P(
     }
     const choice = await p2pStreamPicker();
     if (!choice || leaving) return;
-    activeScreenProfile = streamProfile(String(choice.fps), lowResourceMode());
+    activeScreenProfile = streamProfile(String(choice.fps), lowResourceMode(), String(choice.height >= 1440 ? 1440 : choice.height >= 1080 ? 1080 : 720));
     if (lowResourceMode()) {
       choice.width = Math.min(choice.width, 1280);
       choice.height = Math.min(choice.height, 720);
@@ -5367,6 +5826,10 @@ async function callViewP2P(
       after = Math.max(after, Number(item.id));
       const peerId = Number(item.from);
       try {
+        if (item.payload?.kind === "call-reaction") {
+          showReaction(peerId, String(item.payload.emoji || ""));
+          continue;
+        }
         if (item.payload?.kind === "roulette-hello") {
           await signal(peerId, rouletteSnapshot()).catch(() => {});
           continue;
@@ -5687,6 +6150,9 @@ async function callViewP2P(
     await community({}, { action: "voice_leave", channel_id: channelId }).catch(() => {});
     peers.forEach((pc) => pc.close()); cameraPeers.forEach((pc) => pc.close()); nativeScreenPeers.forEach((pc) => pc.close()); local.getTracks().forEach((track) => track.stop());
     document.querySelector("#voiceDockApp")?.remove();
+    await exitWindowMini();
+    document.querySelector("#kcCallMini")?.remove();
+    restoreCallOnRender = false;
     activeVoiceChannel = 0; activeVoiceMode = null; activeVoiceMeta = null; activeVoiceRoom = null;
     activeVoiceLeave = activeVoiceMute = activeVoiceDeafen = activeVoiceCamera = activeVoiceShare = null;
     activeVoiceSetUserVolume = null;
@@ -5729,7 +6195,7 @@ async function callViewP2P(
   }, 2500);
   if (localStorage.getItem("kitchat_input_mode") === "ptt") await setMuted(true);
   const status = document.querySelector<HTMLElement>("#roomState"); if (status) status.lastChild!.textContent = "Подключено";
-  const label = document.querySelector<HTMLElement>("#voiceConnectionLabel"); if (label) label.textContent = "Голосовая P2P-связь подключена";
+  const label = document.querySelector<HTMLElement>("#voiceConnectionLabel"); if (label) label.textContent = "Голос подключён";
   const loop = async () => {
     if (leaving || activeVoiceChannel !== channelId) return;
     try { await poll(); } catch (error) { console.warn("P2P voice poll failed", error); }
@@ -6260,80 +6726,201 @@ async function updatePresentation(version: string, notes: string): Promise<{ tit
     return { title: `Kitchat ${version}`, images: markdownImages };
   }
 }
-async function checkForUpdates() {
-  try {
-    const update = await check({ timeout: 15000 });
-    if (!update) return;
-    const notes = update.body || "Новая версия Kitchat готова к установке.";
-    const presentation = await updatePresentation(update.version, notes);
-    const artwork = presentation.images[0] || { src: "/kitchat-update-hero.svg", alt: "Обновление Kitchat" };
-    const layer = document.createElement("div");
-    layer.className = "modal-layer update-layer";
-    layer.innerHTML = `<section class="modal-card update-card"><button class="modal-close" type="button" aria-label="Закрыть">×</button><div class="update-hero"><img src="${esc(artwork.src)}" alt="${esc(artwork.alt)}"><div class="update-version-pill">НОВАЯ ВЕРСИЯ · ${esc(update.version)}</div><div class="update-hero-copy"><span>Обновление Kitchat</span><h2>${esc(presentation.title)}</h2></div></div>${presentation.images.length > 1 ? `<div class="update-gallery" aria-label="Изображения обновления">${presentation.images.map((image, index) => `<button type="button" class="${index === 0 ? "active" : ""}" data-update-image="${esc(image.src)}" data-update-alt="${esc(image.alt)}"><img src="${esc(image.src)}" alt=""></button>`).join("")}</div>` : ""}<div class="update-content"><div class="update-notes"><h3>Что нового</h3>${updateNotesMarkup(notes)}</div><div class="update-progress" hidden><i></i></div><small id="updateStatus">Подпись обновления будет проверена автоматически</small><div class="modal-actions"><button class="cancel" type="button">Напомнить позже</button><button class="primary" type="button">Обновить сейчас</button></div></div></section>`;
-    document.body.append(layer);
-    const heroImage = layer.querySelector<HTMLImageElement>(".update-hero img")!;
-    heroImage.onerror = () => { heroImage.onerror = null; heroImage.src = "/kitchat-update-hero.svg"; };
-    const close = () => layer.remove();
-    layer.querySelector<HTMLButtonElement>(".cancel")!.onclick = close;
-    layer.querySelector<HTMLButtonElement>(".modal-close")!.onclick = close;
-    layer.querySelectorAll<HTMLButtonElement>("[data-update-image]").forEach((thumbnail) => {
-      thumbnail.onclick = () => {
-        layer.querySelector<HTMLImageElement>(".update-hero img")!.src = thumbnail.dataset.updateImage || artwork.src;
-        layer.querySelector<HTMLImageElement>(".update-hero img")!.alt = thumbnail.dataset.updateAlt || artwork.alt;
-        layer.querySelectorAll("[data-update-image]").forEach((item) => item.classList.toggle("active", item === thumbnail));
-      };
-    });
-    layer.querySelector<HTMLButtonElement>(".primary")!.onclick = async (
-      event,
-    ) => {
-      const button = event.currentTarget as HTMLButtonElement,
-        status = layer.querySelector<HTMLElement>("#updateStatus")!,
-        progress = layer.querySelector<HTMLElement>(".update-progress")!,
-        bar = progress.querySelector<HTMLElement>("i")!;
-      button.disabled = true;
-      progress.hidden = false;
-      let downloaded = 0,
-        total = 0;
-      try {
-        await update.downloadAndInstall((progress) => {
-          if (progress.event === "Started")
-            total = progress.data.contentLength || 0;
-          if (progress.event === "Progress") {
-            downloaded += progress.data.chunkLength;
-            bar.style.width = total
-              ? `${Math.min(100, (downloaded / total) * 100)}%`
-              : "55%";
-            status.textContent = total
-              ? `Загружено ${Math.round((downloaded / total) * 100)}%`
-              : "Загружаем обновление…";
-          }
-          if (progress.event === "Finished")
-            status.textContent = "Проверяем подпись и запускаем установку…";
-        });
-        status.textContent = "Обновление готово — перезапускаем Kitchat…";
-        bar.style.width = "100%";
-        await relaunch();
-      } catch (error) {
-        console.error("Update installation failed", error);
-        status.textContent = `Не удалось установить обновление: ${String(error)}`;
-        bar.style.width = "0";
-        button.disabled = false;
-        button.textContent = "Попробовать снова";
-      }
-    };
-  } catch (error) {
-    console.warn("Update check failed", error);
+// --- Background auto-update -------------------------------------------------
+// Kitchat usually lives in the tray for days, so updates are checked
+// periodically, downloaded silently and installed only when the user agrees.
+type AvailableUpdate = NonNullable<Awaited<ReturnType<typeof check>>>;
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60_000;
+let pendingUpdate: AvailableUpdate | null = null;
+let updateState: "idle" | "downloading" | "ready" | "failed" = "idle";
+let updateProgress = 0;
+let updateDownload: Promise<boolean> | null = null;
+let updateCheckRunning: Promise<void> | null = null;
+let lastUpdateCheckAt = 0;
+let updateDialogPaint: (() => void) | null = null;
+
+function paintUpdatePill() {
+  const host = document.querySelector<HTMLElement>("#kcTitlebarActions");
+  if (!host) return;
+  let pill = host.querySelector<HTMLButtonElement>(".kc-update-pill");
+  if (!pendingUpdate || (updateState !== "downloading" && updateState !== "ready")) { pill?.remove(); return; }
+  if (!pill) {
+    pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "kc-update-pill";
+    pill.onclick = () => void showUpdateDialog();
+    host.prepend(pill);
   }
+  pill.classList.toggle("is-progress", updateState === "downloading");
+  pill.innerHTML = updateState === "ready"
+    ? `${svgIcon("download")}Обновить до ${esc(pendingUpdate.version)}`
+    : `${svgIcon("download")}Загружаем <b>${updateProgress}%</b>`;
+}
+function paintUpdateState() { paintUpdatePill(); updateDialogPaint?.(); }
+
+function downloadPendingUpdate() {
+  const update = pendingUpdate;
+  if (!update) return Promise.resolve(false);
+  if (updateState === "ready") return Promise.resolve(true);
+  if (updateDownload) return updateDownload;
+  updateState = "downloading";
+  updateProgress = 0;
+  paintUpdateState();
+  let downloaded = 0, total = 0;
+  updateDownload = update.download((progress) => {
+    if (progress.event === "Started") total = progress.data.contentLength || 0;
+    if (progress.event === "Progress") {
+      downloaded += progress.data.chunkLength;
+      const next = total ? Math.min(99, Math.round((downloaded / total) * 100)) : 0;
+      if (next !== updateProgress) { updateProgress = next; paintUpdateState(); }
+    }
+  }).then(() => {
+    updateState = "ready";
+    updateProgress = 100;
+    paintUpdateState();
+    showAppNotice("Обновление готово", `Kitchat ${update.version} загружен. Нажмите кнопку в заголовке окна, чтобы установить.`, "success");
+    return true;
+  }).catch((error) => {
+    console.warn("Background update download failed", error);
+    updateState = "failed";
+    paintUpdateState();
+    return false;
+  }).finally(() => { updateDownload = null; });
+  return updateDownload;
+}
+
+async function installPendingUpdate(status?: HTMLElement | null) {
+  const update = pendingUpdate;
+  if (!update) return;
+  if (activeVoiceChannel && !(await appConfirm("Установить обновление?", "Kitchat перезапустится, и текущий звонок будет завершён."))) return;
+  const say = (text: string) => { if (status) status.textContent = text; };
+  if (updateState !== "ready") {
+    say("Загружаем обновление…");
+    if (!(await downloadPendingUpdate())) {
+      // A failed split download falls back to the one-shot installer path.
+      say("Повторяем загрузку…");
+      await update.downloadAndInstall();
+      await relaunch();
+      return;
+    }
+  }
+  say("Проверяем подпись и устанавливаем…");
+  await activeVoiceLeave?.().catch(() => {});
+  await markDesktopOffline();
+  await flushSettingsBackup();
+  await update.install();
+  say("Готово — перезапускаем Kitchat…");
+  await relaunch();
+}
+
+async function checkForUpdates(manual = false): Promise<void> {
+  if (updateCheckRunning) {
+    if (manual) showAppNotice("Обновления", "Проверка уже идёт…");
+    return updateCheckRunning;
+  }
+  if (manual && pendingUpdate) { void showUpdateDialog(); return; }
+  updateCheckRunning = (async () => {
+    if (manual) showAppNotice("Обновления", "Проверяем, есть ли новая версия…");
+    try {
+      lastUpdateCheckAt = Date.now();
+      const update = await check({ timeout: 15000 });
+      if (!update) {
+        if (manual) showAppNotice("Обновлений нет", `У вас последняя версия — Kitchat ${appVersion}`, "success");
+        return;
+      }
+      if (pendingUpdate?.version !== update.version) {
+        pendingUpdate = update;
+        updateState = "idle";
+      }
+      if (manual) void showUpdateDialog();
+      await downloadPendingUpdate();
+    } catch (error) {
+      console.warn("Update check failed", error);
+      if (manual) showAppNotice("Не удалось проверить обновления", String(error), "warning");
+    } finally {
+      updateCheckRunning = null;
+    }
+  })();
+  return updateCheckRunning;
+}
+
+function scheduleUpdateChecks() {
+  window.setTimeout(() => void checkForUpdates(), 4000);
+  window.setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
+  window.addEventListener("focus", () => {
+    if (Date.now() - lastUpdateCheckAt > UPDATE_CHECK_INTERVAL_MS) void checkForUpdates();
+  });
+}
+
+async function showUpdateDialog() {
+  const update = pendingUpdate;
+  if (!update || document.querySelector(".update-layer")) return;
+  const notes = update.body || "Новая версия Kitchat готова к установке.";
+  const presentation = await updatePresentation(update.version, notes);
+  const artwork = presentation.images[0] || { src: "/kitchat-update-hero.svg", alt: "Обновление Kitchat" };
+  const layer = document.createElement("div");
+  layer.className = "modal-layer update-layer";
+  layer.innerHTML = `<section class="modal-card update-card"><button class="modal-close" type="button" aria-label="Закрыть">×</button><div class="update-hero"><img src="${esc(artwork.src)}" alt="${esc(artwork.alt)}"><div class="update-version-pill">${esc(appVersion)} → ${esc(update.version)}</div><div class="update-hero-copy"><span>Обновление Kitchat</span><h2>${esc(presentation.title)}</h2></div></div>${presentation.images.length > 1 ? `<div class="update-gallery" aria-label="Изображения обновления">${presentation.images.map((image, index) => `<button type="button" class="${index === 0 ? "active" : ""}" data-update-image="${esc(image.src)}" data-update-alt="${esc(image.alt)}"><img src="${esc(image.src)}" alt=""></button>`).join("")}</div>` : ""}<div class="update-content"><div class="update-notes"><h3>Что нового</h3>${updateNotesMarkup(notes)}</div><div class="update-progress"><i></i></div><small id="updateStatus"></small><div class="modal-actions"><button class="cancel" type="button">Позже</button><button class="primary" type="button">Перезапустить и обновить</button></div></div></section>`;
+  document.body.append(layer);
+  const heroImage = layer.querySelector<HTMLImageElement>(".update-hero img")!;
+  heroImage.onerror = () => { heroImage.onerror = null; heroImage.src = "/kitchat-update-hero.svg"; };
+  const status = layer.querySelector<HTMLElement>("#updateStatus")!;
+  const bar = layer.querySelector<HTMLElement>(".update-progress i")!;
+  const button = layer.querySelector<HTMLButtonElement>(".primary")!;
+  let installing = false;
+  updateDialogPaint = () => {
+    if (installing) return;
+    bar.style.width = `${updateState === "ready" ? 100 : updateProgress}%`;
+    status.textContent = updateState === "ready" ? "Обновление загружено и ждёт установки · подпись проверяется автоматически"
+      : updateState === "downloading" ? `Загружаем в фоне… ${updateProgress}%`
+      : updateState === "failed" ? "Фоновая загрузка не удалась — нажмите, чтобы повторить" : "Подготавливаем загрузку…";
+    button.textContent = updateState === "ready" ? "Перезапустить и обновить" : "Обновить сейчас";
+  };
+  updateDialogPaint();
+  const close = () => {
+    if (installing) return;
+    updateDialogPaint = null;
+    layer.classList.add("is-closing");
+    window.setTimeout(() => layer.remove(), 180);
+  };
+  layer.querySelector<HTMLButtonElement>(".cancel")!.onclick = close;
+  layer.querySelector<HTMLButtonElement>(".modal-close")!.onclick = close;
+  layer.addEventListener("mousedown", (event) => { if (event.target === layer) close(); });
+  layer.querySelectorAll<HTMLButtonElement>("[data-update-image]").forEach((thumbnail) => {
+    thumbnail.onclick = () => {
+      heroImage.src = thumbnail.dataset.updateImage || artwork.src;
+      heroImage.alt = thumbnail.dataset.updateAlt || artwork.alt;
+      layer.querySelectorAll("[data-update-image]").forEach((item) => item.classList.toggle("active", item === thumbnail));
+    };
+  });
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      installing = true;
+      await installPendingUpdate(status);
+    } catch (error) {
+      console.error("Update installation failed", error);
+      installing = false;
+      updateState = "failed";
+      updateDialogPaint?.();
+      status.textContent = `Не удалось установить обновление: ${String(error)}`;
+      button.textContent = "Попробовать снова";
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 async function start() {
   appVersion = await getVersion().catch(() => appVersion);
+  // Checked independently of sign-in so logged-out clients still update.
+  scheduleUpdateChecks();
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event) => {
     event.preventDefault();
     await appWindow.hide();
   });
-  await listen("kitchat://app-exiting", () => void markDesktopOffline());
-  await listen("kitchat://check-update", () => void checkForUpdates());
+  await listen("kitchat://app-exiting", () => { void flushSettingsBackup(); void markDesktopOffline(); });
+  await listen("kitchat://check-update", () => void checkForUpdates(true));
   await onOpenUrl((urls) => {
     if (urls[0]) void acceptOAuth(urls[0]);
   });
@@ -6346,17 +6933,31 @@ async function start() {
     authView();
     return;
   }
-  try {
-    const data = await request("desktop_auth.php?action=me");
-    currentUser = data.user;
-    void syncOwnProfileAbout();
-    void ensureNotificationPermission();
-    await shellView(0, "", true);
-    window.setTimeout(() => void checkForUpdates(), 2500);
-  } catch {
-    localStorage.removeItem("kitchat_token");
-    authView();
+  // Autostart often runs before Windows has network. Only an explicit 401 from
+  // the server signs out; anything else is retried until the server answers.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const data = await request("desktop_auth.php?action=me");
+      currentUser = data.user;
+      break;
+    } catch (error) {
+      if (isSessionRejected(error)) {
+        localStorage.removeItem("kitchat_token");
+        authView();
+        return;
+      }
+      const delay = Math.min(30, attempt * 2);
+      app.innerHTML = `<main class="loading-screen"><div class="loading-logo"><img src="/kitchat-loader.png" alt=""></div><p>Ждём подключения к интернету<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><small class="loading-hint">Повторим через ${delay} с — вход сохранён</small></main>`;
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(done, delay * 1000);
+        function done() { window.clearTimeout(timer); window.removeEventListener("online", done); resolve(); }
+        window.addEventListener("online", done);
+      });
+    }
   }
+  void syncOwnProfileAbout();
+  void ensureNotificationPermission();
+  await shellView(0, "", true);
 }
 void start();
 

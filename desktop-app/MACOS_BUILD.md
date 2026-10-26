@@ -28,13 +28,13 @@ Updater-ключ и Apple-сертификат нельзя коммитить �
 
 Откройте **Actions → Build Kitchat for macOS → Run workflow**. После завершения появятся два артефакта: `kitchat-macos-arm64` и `kitchat-macos-x64`.
 
-## Релиз 1.4.92
+## Релиз
 
 Создайте и отправьте тег:
 
 ```bash
-git tag kitchat-v1.4.92
-git push origin kitchat-v1.4.92
+git tag kitchat-v1.5.4
+git push origin kitchat-v1.5.4
 ```
 
 Workflow выполнит тесты на обеих архитектурах, соберёт `.dmg` и подписанные updater-архивы `.app.tar.gz`, создаст контрольные суммы и прикрепит файлы к GitHub Release. Итоговый `macos-updater-platform.json` содержит оба блока — `darwin-aarch64` и `darwin-x86_64`; их нужно добавить в `platforms` основного `downloads/kitchat/latest.json`.
