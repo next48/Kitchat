@@ -1,5 +1,5 @@
 #[tauri::command]
-fn mobile_audio_route(app: tauri::AppHandle, active: bool, speaker: Option<bool>) -> Result<serde_json::Value, String> {
+async fn mobile_audio_route(app: tauri::AppHandle, active: bool, speaker: Option<bool>) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "ios")]
     { use tauri::Manager; app.state::<tauri_plugin_voice_mobile::MobileVoice<tauri::Wry>>().configure(active, speaker) }
     #[cfg(not(target_os = "ios"))]

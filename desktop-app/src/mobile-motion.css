@@ -113,3 +113,10 @@
  .modal-layer[data-modal-kind=server] .settings-sidebar button { flex:1 1 40%; min-height:44px; padding:8px 12px; border-radius:10px; background:#303036; }
  .modal-layer[data-modal-kind=server] .settings-pages { padding:12px 0; min-width:0; }
 }
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+ .modal-layer[data-modal-kind=server] .settings-sidebar { flex:none; flex-direction:column; flex-wrap:nowrap; gap:0; height:auto; width:100%; overflow:visible; border-radius:12px; background:#2c2c31; }
+ .modal-layer[data-modal-kind=server] .settings-sidebar > small { margin:0; padding:12px 14px; }
+ .modal-layer[data-modal-kind=server] .settings-sidebar button { flex:none; width:100%; height:46px; min-height:46px; border-radius:0; border-bottom:1px solid #ffffff0b; margin:0; padding:0 14px; }
+ .modal-layer[data-modal-kind=server] .settings-sidebar button.active { background:#3b3b43; }
+ .modal-card :is(input,textarea,select) { font-size:16px; }
+}
