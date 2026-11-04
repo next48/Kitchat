@@ -1,0 +1,98 @@
+/* Mobile landing screen. Shared API/action hooks, independent composition. */
+.phone-server-screen { display: none; }
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .phone-shell[data-pane="channels"] { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+  .phone-shell[data-pane="channels"] > .mobile-home {
+    --home-bg: #111214;
+    --home-panel: #1a1a1e;
+    --home-control: #27272c;
+    --home-muted: #9999a3;
+    display: grid;
+    grid-template: minmax(0, 1fr) auto / 72px minmax(0, 1fr);
+    min-height: 0;
+    padding-top: 12px;
+    background: var(--home-bg);
+    color: #f2f2f5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .mobile-home button { font-family: inherit; box-shadow: none; }
+  .mobile-home .phone-server-rail {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 12px; padding: 6px 0 16px; background: transparent;
+    border: 0; border-radius: 0; overflow-y: auto; scrollbar-width: none;
+  }
+  .mobile-server-list { display: flex; flex-direction: column; gap: 12px; }
+  .mobile-home .phone-server-rail :is(.home, .server, .add) {
+    position: relative; flex: none; width: 48px; height: 48px;
+    min-height: 48px; margin: 0; padding: 0; border: 0;
+    border-radius: 14px; background: #242428; color: #b5b5bf;
+    font-size: 16px; font-weight: 650; overflow: visible;
+  }
+  .mobile-home .phone-server-rail img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+  .mobile-home .phone-server-rail .ic { width: 25px; height: 25px; }
+  .mobile-home .phone-server-rail > i { width: 40px; height: 1px; flex: none; background: #29292e; margin: 0; }
+  .mobile-home .phone-server-rail .add { font-size: 30px; font-weight: 400; }
+  .phone-shell .mobile-home .phone-server-rail .server.active,
+  .phone-shell.no-server .mobile-home .phone-server-rail .home { background: #35353e; color: white; box-shadow: none; }
+  .mobile-home .phone-server-rail button:hover { transform: none; }
+  .mobile-home .phone-server-rail .server.active::before,
+  .no-server .mobile-home .phone-server-rail .home::before { content: ""; position: absolute; left: -12px; top: 50%; width: 4px; height: 28px; border-radius: 0 4px 4px 0; background: #f3f3f6; }
+  .mobile-home .phone-channel-panel {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    border: 1px solid #252529; border-right: 0; border-bottom: 0;
+    border-radius: 24px 0 0 0; background: var(--home-panel); box-shadow: none;
+  }
+  .mobile-home .phone-server-heading { display: flex; align-items: center; gap: 6px; min-height: 66px; padding: 16px 16px 10px; border: 0; background: transparent; }
+  .mobile-home .phone-server-heading h1 { margin: 0; font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-home #serverMenuToggle { width: 100%; min-width: 0; padding: 0; justify-content: flex-start; gap: 6px; }
+  .mobile-home #serverMenuToggle span { min-width: 0; }
+  .mobile-home #serverMenuToggle b { font-size: 23px; font-weight: 700; }
+  .mobile-home #serverMenuToggle small { display: none; }
+  .mobile-home .phone-server-actions { display: grid; grid-template-columns: minmax(0,1fr) 44px; gap: 10px; padding: 0 16px 20px; }
+  .mobile-home .phone-server-actions button { display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 10px; border-radius: 12px; background: var(--home-control); color: #e0e0e5; font-size: 16px; font-weight: 500; }
+  .mobile-home .phone-server-actions .ic { width: 22px; height: 22px; }
+  .mobile-home .phone-channel-list { flex: 1; min-height: 0; padding: 0 8px 20px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .mobile-home .phone-inbox-shortcuts { margin: 0 8px 12px; padding: 4px 0 12px; border-top: 1px solid #2b2b30; border-bottom: 1px solid #2b2b30; }
+  .mobile-home .phone-inbox-shortcuts button { position: relative; display: grid; grid-template-columns: 24px minmax(0,1fr) 18px; align-items: center; gap: 12px; width: 100%; min-height: 62px; padding: 9px 2px; text-align: left; border-radius: 8px; }
+  .mobile-home .phone-inbox-shortcuts b { display: block; color: #dddde3; font-size: 16px; line-height: 22px; font-weight: 600; }
+  .mobile-home .phone-inbox-shortcuts small { display: block; color: var(--home-muted); font-size: 13px; line-height: 19px; font-weight: 400; }
+  .mobile-home .phone-inbox-shortcuts .ic { width: 22px; height: 22px; color: #a8a8b2; }
+  .mobile-home .phone-inbox-shortcuts button > .ic:last-child { width: 16px; }
+  .mobile-home .phone-inbox-threads > header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; min-height: 44px; }
+  .mobile-home .phone-inbox-threads h2 { margin: 0; color: #a9a9b3; font-size: 14px; font-weight: 600; }
+  .mobile-home .phone-icon-button { width: 44px; height: 44px; color: #b4b4be; }
+  .mobile-home .mobile-conversation { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; gap: 10px; align-items: center; width: 100%; min-height: 72px; padding: 10px 8px; margin: 0; text-align: left; border: 0; border-radius: 10px; background: transparent; }
+  .mobile-home .mobile-conversation .avatar { width: 44px; height: 44px; flex: none; }
+  .mobile-home .mobile-conversation-copy { display: block; min-width: 0; }
+  .mobile-home .mobile-conversation b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; line-height: 23px; color: #e5e5eb; }
+  .mobile-home .mobile-conversation small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px; color: var(--home-muted); font-weight: 400; }
+  .mobile-home .mobile-conversation-meta { display: grid; justify-items: end; align-self: stretch; align-content: center; gap: 5px; }
+  .mobile-home .mobile-conversation time { font-size: 11px; color: var(--home-muted); white-space: nowrap; }
+  .mobile-home em { font-style: normal; font-size: 12px; border-radius: 12px; background: #d52b41; color: white; padding: 1px 6px; }
+  .mobile-home .phone-server-dock { grid-column: 1 / -1; padding: 8px 16px 16px; background: var(--home-bg); }
+  .mobile-home .mobile-account { display: flex; align-items: center; gap: 8px; height: 60px; min-height: 60px; padding: 6px 8px; border: 1px solid #303036; border-radius: 20px; background: #242429; }
+  .mobile-home .mobile-account-identity { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; width: auto; height: 48px; text-align: left; padding: 0; }
+  .mobile-home .mobile-account-identity .avatar { width: 46px; height: 46px; flex: none; }
+  .mobile-home .mobile-account-identity > span:nth-child(2) { min-width: 0; }
+  .mobile-home .mobile-account-identity b { display: block; font-size: 16px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-home .mobile-account-identity small { display: block; font-size: 13px; font-weight: 400; color: var(--home-muted); }
+  .mobile-home .mobile-account-identity > .ic { width: 16px; height: 16px; }
+  .mobile-home .mobile-account-requests { width: 44px; height: 40px; border-radius: 12px; background: #303036; color: #b5b5bf; }
+  .mobile-home .mobile-account [hidden] { display: none; }
+  .mobile-home button:active { background-color: #34343c; }
+  .mobile-home button:focus-visible { outline: 2px solid #949cff; outline-offset: -2px; }
+  .mobile-home .phone-channel-group { margin: 8px 0 20px; }
+  .mobile-home .phone-channel-group > header { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; min-height: 44px; }
+  .mobile-home [data-phone-collapse] { display: flex; align-items: center; gap: 6px; min-height: 44px; color: var(--home-muted); font-size: 14px; font-weight: 600; }
+  .mobile-home [data-phone-collapse] .ic { width: 14px; height: 14px; }
+  .mobile-home [data-phone-collapse][aria-expanded="false"] .ic { transform: rotate(-90deg); }
+  .mobile-home .channel { min-height: 46px; padding: 8px 10px; font-size: 17px; font-weight: 400; color: #a5a5af; }
+  .mobile-home .channel.active { background: #323238; color: #f2f2f5; border-radius: 10px; }
+  .mobile-home .channel.active::before { display: none; }
+  .mobile-home .channel :is(b, span) { font-size: 17px; font-weight: 400; }
+  .mobile-home .channel .ic { width: 22px; height: 22px; }
+  .mobile-home .channel small { font-size: 12px; font-weight: 400; }
+  .mobile-home .phone-empty-state { display: grid; justify-items: center; gap: 8px; padding: 32px 16px; text-align: center; color: var(--home-muted); }
+  .mobile-home .phone-empty-state small { font-size: 14px; }
+  .mobile-home .phone-empty-state button { min-height: 44px; color: #aeb5ff; }
+}

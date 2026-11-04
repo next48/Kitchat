@@ -61,6 +61,10 @@
         "startMenuFolder": "Kitchat",
         "compression": "lzma"
       }
+    },
+    "iOS": {
+      "minimumSystemVersion": "16.0",
+      "infoPlist": "Info.ios.plist"
     }
   },
   "plugins": {

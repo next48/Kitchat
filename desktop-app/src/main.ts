@@ -2,6 +2,13 @@
 import { flushSettingsBackup } from "./persist";
 import "./styles.css";
 import "./social.css";
+import "./mobile.css";
+import "./mobile-home.css";
+import "./mobile-discord.css";
+import "./mobile-motion.css";
+import { installMobileSheets } from "./mobile-sheets";
+installMobileSheets();
+import { mobileAccount, mobileConversation, mobileChannelGroup, mobileChatHeader, mobileHomeMarkup, mobileInbox, mobileServerScreen, phoneLayout, trackMobileKeyboard } from "./mobile-ui";
 import "@fontsource-variable/manrope";
 import { ico, installIconSprite, svgIcon } from "./icons";
 installIconSprite();
@@ -12,7 +19,7 @@ import { formatVoiceDuration, resolveCallFocus, voiceStartedAtFromElapsed } from
 import { startSystemAudioTrack } from "./system-audio";
 import { LogicalSize, PhysicalPosition, PhysicalSize, currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
@@ -30,7 +37,7 @@ import type {
 const lowResourceMode = () => localStorage.getItem("kitchat_low_performance") === "1";
 const cameraPreviewMirrored = () => localStorage.getItem("kitchat_camera_mirror") !== "0";
 const LIVEKIT_ENABLED = false; // Retained for a future coordinated server/client rollback.
-const API = "https://oliverkitchen.ru/api";
+const API = import.meta.env.DEV && !isTauri() ? "/api" : "https://oliverkitchen.ru/api";
 let appVersion = "1.5.4";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const loadingView = () => `<main class="loading-screen" aria-label="Kitchat загружается"><div class="loading-logo"><img src="/kitchat-loader.png" alt=""></div><p>Запускаем Kitchat<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span></p></main>`;
@@ -241,6 +248,10 @@ function openCommandPalette() {
   const layer = document.createElement("div");
   layer.className = "kc-palette-layer";
   layer.innerHTML = `<div class="kc-palette" role="dialog" aria-label="Быстрый переход"><label class="kc-palette-input">${svgIcon("search")}<input placeholder="Сервер, канал, друг или команда…" autocomplete="off" spellcheck="false"><kbd>Esc</kbd></label><div class="kc-palette-list" role="listbox"></div><div class="kc-palette-hint"><span><kbd>↑↓</kbd> выбор</span><span><kbd>Enter</kbd> открыть</span><span><kbd>Ctrl+Shift+M</kbd> микрофон</span></div></div>`;
+  if (phoneLayout.matches) {
+    layer.classList.add("phone-search-layer");
+    layer.querySelector(".kc-palette-input")?.insertAdjacentHTML("afterend", '<button type="button" class="phone-search-close">Отмена</button>');
+  }
   document.body.append(layer);
   const input = layer.querySelector<HTMLInputElement>("input")!;
   const list = layer.querySelector<HTMLElement>(".kc-palette-list")!;
@@ -248,6 +259,7 @@ function openCommandPalette() {
   let items: PaletteItem[] = [];
   let index = 0;
   const close = () => { layer.remove(); document.removeEventListener("keydown", onKey, true); };
+  layer.querySelector(".phone-search-close")?.addEventListener("click", close);
   const paintActive = () => list.querySelectorAll<HTMLElement>("[data-palette-index]").forEach((node) => node.classList.toggle("active", Number(node.dataset.paletteIndex) === index));
   const render = () => {
     const query = input.value.trim().toLocaleLowerCase("ru");
@@ -817,6 +829,7 @@ document.addEventListener("click", (event) => {
 });
 async function request(path: string, data?: Record<string, string>) {
   const response = await fetch(`${API}/${path}`, {
+    signal: AbortSignal.timeout(12_000),
     method: data ? "POST" : "GET",
     headers: {
       "Content-Type": "application/json",
@@ -841,7 +854,7 @@ async function community(
     Object.entries(query).map(([k, v]) => [k, String(v)]),
   );
   const response = await fetch(`${API}/community.php?${params}`, {
-    signal,
+    signal: signal ?? AbortSignal.timeout(12_000),
     method: data ? "POST" : "GET",
     headers: { ...(token() ? { Authorization: `Bearer ${token()}` } : {}) },
     body: data
@@ -856,6 +869,18 @@ async function community(
   if (!response.ok || !result.ok)
     throw Object.assign(new Error(result.error || "Не удалось загрузить серверы"), { status: response.status });
   return result;
+}
+async function changeFriend(userId: number, mode: string) {
+  if (!Number.isSafeInteger(userId) || userId <= 0 || userId === currentUser?.id) {
+    throw new Error("Выберите другого пользователя");
+  }
+  await community({}, { action: "friend", user_id: userId, mode });
+  const snapshot: CommunityState = await community({ server_id: 0 });
+  const person = snapshot.people.find((item) => item.id === userId);
+  const confirmed = mode === "add" ? person?.friend_status === 1 || (person?.friend_status === 0 && person.sent_by_me)
+    : mode === "accept" ? person?.friend_status === 1
+    : !person;
+  if (!confirmed) throw new Error("Сервер не подтвердил изменение заявки. Обновите список и попробуйте ещё раз.");
 }
 async function communityUpload(data: FormData) {
   const response = await fetch(`${API}/community.php`, {
@@ -883,7 +908,17 @@ async function directMessages(query: Record<string, string | number> = {}, data?
   const stringData = data ? Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])) : undefined;
   let result: { ok: boolean; error?: string; threads?: DirectThread[]; messages?: DirectMessage[]; message?: DirectMessage };
   try {
-    result = await invoke("direct_messages_request", { token: token(), query: stringQuery, data: stringData });
+    if (import.meta.env.DEV && !isTauri()) {
+      const response = await fetch(`${API}/direct_messages.php?${new URLSearchParams(stringQuery)}`, {
+        signal: AbortSignal.timeout(12_000),
+        method: stringData ? "POST" : "GET",
+        headers: token() ? { Authorization: `Bearer ${token()}` } : {},
+        body: stringData ? new URLSearchParams(stringData) : undefined,
+      });
+      result = await response.json();
+    } else {
+      result = await invoke("direct_messages_request", { token: token(), query: stringQuery, data: stringData });
+    }
   } catch (error) {
     throw new Error(typeof error === "string" ? error : "Сервер личных сообщений недоступен");
   }
@@ -1029,9 +1064,10 @@ async function notifyAboutDirectThread(person: Person | undefined, thread: Direc
   if (document.hasFocus() && !document.hidden) showAppNotice(title, body);
   await sendSystemNotice(title, body);
 }
+let mobileApp = false;
 let autostartConfigured = false;
 async function ensureAutostart() {
-  if (autostartConfigured) return;
+  if (mobileApp || autostartConfigured) return;
   autostartConfigured = true;
   try {
     if (!(await isAutostartEnabled())) await enableAutostart();
@@ -1193,6 +1229,16 @@ function bindSettings(layer: HTMLElement) {
       (button.onclick = () => select(button.dataset.settingsTab || "profile")),
   );
   select(buttons[0]?.dataset.settingsTab || "profile");
+  if (phoneLayout.matches && buttons.some((button) => button.dataset.settingsTab === "account")) {
+    layer.classList.add("phone-settings", "phone-settings-index");
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "phone-settings-back";
+    back.textContent = "‹ Настройки";
+    layer.querySelector(".modal-titlebar")?.prepend(back);
+    back.onclick = () => layer.classList.add("phone-settings-index");
+    buttons.forEach((button) => button.addEventListener("click", () => layer.classList.remove("phone-settings-index")));
+  }
   layer
     .querySelectorAll<HTMLInputElement>('input[type="file"][data-preview]')
     .forEach(
@@ -1372,8 +1418,8 @@ async function p2pStreamPicker(): Promise<CaptureChoice | null> {
 }
 function friendsModal(serverId: number, onChanged: () => void, initialPeople: Person[] = [], canInvite = false) {
   const layer = document.createElement("div");
-  layer.className = "modal-layer";
-  layer.innerHTML = `<section class="modal-card friends-card"><button class="modal-close" type="button">×</button><small>ДРУЗЬЯ</small><h2>Найти человека</h2><div class="friend-search">${ico("search")}<input placeholder="Имя или ID" autocomplete="off"></div><div class="friend-results"><p>Начните вводить имя пользователя</p></div></section>`;
+  layer.className = "modal-layer friend-picker-layer";
+  layer.innerHTML = `<section class="modal-card friends-card"><button class="modal-close" type="button">×</button><small>ДРУЗЬЯ</small><h2>Найти человека</h2><div class="friend-search">${ico("search")}<input placeholder="Имя или ID" autocomplete="off"></div><p class="friend-picker-status" role="status"></p><div class="friend-results"><p>Начните вводить имя пользователя</p></div></section>`;
   document.body.append(layer);
   let searchRevision = 0;
   let timer = 0;
@@ -1384,7 +1430,7 @@ function friendsModal(serverId: number, onChanged: () => void, initialPeople: Pe
   layer.querySelector("section")?.setAttribute("role", "dialog");
   layer.querySelector("section")?.setAttribute("aria-modal", "true");
   layer.querySelector("section")?.setAttribute("aria-label", "Добавить друга");
-  layer.querySelector("h2")!.textContent = "Хорошей компании всегда рады";
+  layer.querySelector("h2")!.textContent = "Добавить друга";
   layer.querySelector("h2")!.insertAdjacentHTML("afterend", '<p class="friend-search-help">Найдите друга по имени или ID. После принятия заявки вы сможете общаться лично.</p>');
   layer.querySelector<HTMLButtonElement>(".modal-close")!.onclick = close;
   layer.addEventListener("mousedown", (e) => {
@@ -1392,6 +1438,7 @@ function friendsModal(serverId: number, onChanged: () => void, initialPeople: Pe
   });
   const input = layer.querySelector<HTMLInputElement>("input")!,
     results = layer.querySelector<HTMLElement>(".friend-results")!;
+  const feedback = layer.querySelector<HTMLElement>(".friend-picker-status")!;
   input.setAttribute("aria-label", "Имя или ID друга");
   results.setAttribute("aria-live", "polite");
   const render = (people: Person[]) => {
@@ -1425,6 +1472,7 @@ function friendsModal(serverId: number, onChanged: () => void, initialPeople: Pe
           .join("")
       : "<p>Никого не нашли</p>";
   };
+  input.addEventListener("input", () => { feedback.textContent = ""; });
   input.oninput = () => {
     clearTimeout(timer);
     const requestRevision = ++searchRevision;
@@ -1434,7 +1482,7 @@ function friendsModal(serverId: number, onChanged: () => void, initialPeople: Pe
     timer = window.setTimeout(async () => {
       try {
         const found = await community({ server_id: serverId, q: query });
-        if (requestRevision === searchRevision && layer.isConnected) render(found.search);
+        if (requestRevision === searchRevision && layer.isConnected) render(Array.isArray(found.search) ? found.search : []);
       } catch {
         if (requestRevision === searchRevision && layer.isConnected) results.innerHTML = "<p>Не удалось выполнить поиск. Попробуйте ещё раз.</p>";
       }
@@ -1445,38 +1493,27 @@ function friendsModal(serverId: number, onChanged: () => void, initialPeople: Pe
       "[data-friend]",
     );
     if (!button || button.dataset.friend === "none") return;
+    const mode = button.dataset.friend || "add";
+    const userId = Number(button.dataset.id);
     button.disabled = true;
+    feedback.textContent = "Сохраняем…";
     try {
-      if (button.dataset.friend === "member")
-        await community(
-          {},
-          {
-            action: "add_member",
-            server_id: serverId,
-            user_id: Number(button.dataset.id),
-          },
-        );
-      else
-        await community(
-          {},
-          {
-            action: "friend",
-            mode: button.dataset.friend || "add",
-            user_id: Number(button.dataset.id),
-          },
-        );
+      if (mode === "member") {
+        await community({}, { action: "add_member", server_id: serverId, user_id: userId });
+      } else {
+        await changeFriend(userId, mode);
+      }
       onChanged();
-      showAppNotice("Друзья", button.dataset.friend === "add" ? "Заявка отправлена" : button.dataset.friend === "accept" ? "Друг добавлен" : "Приглашение отправлено", "success");
-      if (input.value.trim()) input.dispatchEvent(new Event("input"));
-      else { button.textContent = button.dataset.friend === "add" ? "Заявка отправлена" : "Готово"; button.dataset.friend = "none"; }
+      if (!layer.isConnected) return;
+      const status = mode === "add" ? "Заявка отправлена" : mode === "accept" ? "Друг добавлен" : "Приглашение отправлено";
+      feedback.textContent = status;
+      button.textContent = status;
+      button.dataset.friend = "none";
     } catch (error) {
+      feedback.textContent = error instanceof Error ? error.message : "Не удалось выполнить действие";
       button.disabled = false;
-      appAlert(
-        error instanceof Error
-          ? error.message
-          : "Не удалось выполнить действие",
-      );
     }
+
   };
   if (initialPeople.length) render(initialPeople);
   setTimeout(() => input.focus(), 0);
@@ -1875,7 +1912,40 @@ async function toggleWindowMiniPin() {
   paintWindowMiniPin();
   if (windowMiniBounds) await getCurrentWindow().setAlwaysOnTop(windowMiniPinned).catch(() => {});
 }
+function openPhoneVoiceHost() {
+  let host = document.querySelector<HTMLElement>("#phoneVoiceHost");
+  if (!host) {
+    host = document.createElement("section");
+    host.id = "phoneVoiceHost";
+    host.setAttribute("aria-label", "Голосовой канал");
+    document.body.append(host);
+    host.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element) || !event.target.closest(".mobile-call-back")) return;
+      host!.hidden = true;
+      const shell = app.querySelector<HTMLElement>(".app-shell");
+      if (shell) selectMobilePane(shell, "channels");
+      document.querySelector("#phoneVoiceReturn")?.remove();
+      const resume = document.createElement("button");
+      resume.id = "phoneVoiceReturn";
+      resume.textContent = "Вернуться в голосовой канал";
+      resume.onclick = () => { restorePhoneVoice(); };
+      document.body.append(resume);
+    });
+  }
+  host.hidden = false;
+  document.querySelector("#phoneVoiceReturn")?.remove();
+  return host;
+}
+
+function restorePhoneVoice() {
+  if (!phoneLayout.matches || !activeVoiceChannel || !activeVoiceRoom) return false;
+  const host = openPhoneVoiceHost();
+  if (!host.contains(activeVoiceRoom)) undockCallMini(host);
+  return true;
+}
+
 async function expandCallFromMini() {
+  if (restorePhoneVoice()) return;
   await exitWindowMini();
   restoreCallOnRender = true;
   void shellView(activeVoiceServerId, "");
@@ -1903,13 +1973,93 @@ function memberRows(members: User[]) {
   return `${online.length ? `<div class="member-group-title">В сети — ${online.length}</div>${online.map(row).join("")}` : ""}${offline.length ? `<div class="member-group-title offline-title">Не в сети — ${offline.length}</div>${offline.map(row).join("")}` : ""}`;
 }
 
+let lastMobileServer: string | undefined;
+let mobileDevices: MediaDeviceInfo[] = [];
+
+
+function selectMobilePane(shell: HTMLElement, pane: string) {
+  app.dataset.mobilePane = pane;
+  shell.dataset.pane = pane;
+  if (phoneLayout.matches) {
+    shell.querySelectorAll<HTMLElement>(":scope > .mobile-home, :scope > .chat, :scope > .mobile-chat-bar, :scope > .members, :scope > .mobile-members-bar").forEach((layer) => {
+      const owner = layer.matches(".mobile-home") ? "channels" : layer.matches(".chat, .mobile-chat-bar") ? "chat" : "members";
+      layer.inert = owner !== pane;
+    });
+  }
+  shell.querySelectorAll(".mobile-home-nav button").forEach((button) => {
+    const current = pane === "profile" ? button.matches("[data-mobile-pane=profile]")
+      : pane === "servers" || !shell.classList.contains("no-server") ? button.matches("[data-mobile-pane=servers]")
+      : button.matches("[data-mobile-forward=homeStart]");
+    if (current) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  if (pane === "chat" && phoneLayout.matches) {
+    requestAnimationFrame(() => {
+      const messages = shell.querySelector<HTMLElement>(".messages, .dm-messages");
+      if (messages && messages.clientHeight && messages.scrollTop === 0) messages.scrollTop = messages.scrollHeight;
+    });
+  }
+}
+
+function bindMobileNavigation() {
+  const shell = app.querySelector<HTMLElement>(".app-shell");
+  if (!shell) return;
+  shell.querySelectorAll<HTMLButtonElement>("[data-phone-collapse]").forEach((button) => {
+    const rows = button.closest(".phone-channel-group")?.querySelector<HTMLElement>("[data-phone-channel-rows]");
+    if (!rows) return;
+    button.addEventListener("click", () => {
+      rows.hidden = !rows.hidden;
+      button.setAttribute("aria-expanded", String(!rows.hidden));
+    });
+  });
+  shell.querySelectorAll("[data-mobile-command-search]").forEach(button => button.addEventListener("click", openCommandPalette));
+  selectMobilePane(shell, app.dataset.mobilePane || "channels");
+  shell.querySelector("[data-mobile-invite]")?.addEventListener("click", () => {
+    shell.querySelector<HTMLButtonElement>("#membersFriends")?.click();
+  });
+  shell.querySelector("[data-mobile-action=search]")?.addEventListener("click", () => {
+    shell.querySelector<HTMLButtonElement>("#openSearch")?.click();
+  });
+  shell.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const forward = event.target.closest<HTMLElement>("[data-mobile-forward]")?.dataset.mobileForward;
+    if (forward) {
+      if (forward === "homeStart") selectMobilePane(shell, "channels");
+      shell.querySelector<HTMLButtonElement>(`#${forward}`)?.click();
+      return;
+    }
+    const pane = event.target.closest<HTMLElement>("[data-mobile-pane]")?.dataset.mobilePane;
+    if (pane) {
+      if (pane === "servers" && !shell.classList.contains("no-server")) {
+        selectMobilePane(shell, "channels");
+      } else if (pane === "servers") {
+        const servers = [...shell.querySelectorAll<HTMLButtonElement>("[data-server]")];
+        const server = servers.find((item) => item.dataset.server === lastMobileServer) ?? servers[0];
+        selectMobilePane(shell, server ? "channels" : "servers");
+        server?.click();
+      } else {
+        selectMobilePane(shell, pane);
+      }
+      return;
+    }
+    if (phoneLayout.matches) {
+      const server = event.target.closest<HTMLButtonElement>("[data-server]");
+      if (server) lastMobileServer = server.dataset.server;
+    }
+    if (event.target.closest("[data-edit-channel]")) return;
+    if (event.target.closest("[data-channel], [data-dm-user], [data-message-friend], [data-social-dm], #homeFriends, #homeRequests")) {
+      selectMobilePane(shell, "chat");
+    }
+  }, { capture: true });
+}
+
 async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   socialCleanup();
   activeFileDropHandler = null;
   dragDepth = 0;
   dropOverlay.classList.remove("show");
   void ensureAutostart();
-  const currentRoom = document.querySelector<HTMLElement>(".call-screen");
+  const currentRoom = app.querySelector<HTMLElement>(".call-screen");
   if (currentRoom && activeVoiceChannel) {
     // Не уничтожаем медиа-элементы звонка при переходе в текстовый канал.
     // Иначе WebView удаляет remote audio и собеседников перестаёт быть слышно.
@@ -1983,7 +2133,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
         `<button class="server ${active?.id === s.id ? "active" : ""}" data-server="${s.id}" draggable="false" title="${esc(s.name)}">${s.icon ? `<img src="${esc(assetUrl(s.icon))}" alt="" draggable="false">` : esc(s.name.slice(0, 2).toUpperCase())}</button>`,
     )
     .join("");
-  const channelList = (list: Channel[], type: string) =>
+  const channelList = (list: Channel[], type: string, phone = false) =>
     list
       .map((c) => {
         const users = visibleVoice.filter((v) => v.channel_id === c.id);
@@ -1991,7 +2141,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           ? `<i class="channel-manage" data-edit-channel="${c.id}" title="Настроить канал">${ico("edit")}</i>`
           : "";
         const connected = type === "voice" && c.id === activeVoiceChannel;
-        const button = `<button class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом · ${"P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
+        const button = `<button class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : phone ? "volume" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом · ${"P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
         return type === "voice"
           ? `<div class="voice-channel-wrap">${button}<div class="voice-presence" data-channel-id="${c.id}">${users.map(voicePerson).join("")}</div></div>`
           : button;
@@ -2007,7 +2157,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   const dmThreadRows = dmState.threads.map((thread) => {
     const person = friendById.get(thread.peer_id);
     if (!person) return "";
-    return `<button class="dm-thread ${homePane.kind === "dm" && homePane.userId === person.id ? "active" : ""}" type="button" data-dm-user="${person.id}"><div class="avatar">${avatar(person)}${person.online ? "<i></i>" : ""}</div><span><b>${esc(person.name)}</b><small>${esc(thread.last_message || "Начните переписку")}</small></span>${thread.unread ? `<em>${thread.unread}</em>` : ""}</button>`;
+    if (phoneLayout.matches) return mobileConversation({ id: person.id, name: esc(person.name), avatar: avatar(person), online: Boolean(person.online), preview: esc(thread.last_message || "Начните переписку"), time: thread.updated_at ? esc(friendlyTime(thread.updated_at).short) : "", unread: thread.unread || 0 }).replace("mobile-conversation ", "mobile-conversation " + (homePane.kind === "dm" && homePane.userId === person.id ? "active " : ""));
+    return `<button class="dm-thread ${homePane.kind === "dm" && homePane.userId === person.id ? "active" : ""}" type="button" data-dm-user="${person.id}"><div class="avatar">${avatar(person)}${person.online ? "<i></i>" : ""}</div><span><b>${esc(person.name)}</b><small>${esc(thread.last_message || "Начните переписку")}</small></span>${phoneLayout.matches && thread.updated_at ? `<time>${esc(friendlyTime(thread.updated_at).short)}</time>` : ""}${thread.unread ? `<em>${thread.unread}</em>` : ""}</button>`;
   }).filter(Boolean).join("");
   const dmMessages = (dmState.messages || []).map((message, index, messages) => {
     const mine = message.sender_id === user.id;
@@ -2041,12 +2192,30 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   const serverChanged = serverKey !== lastServerKey;
   lastNavKey = navKey;
   lastServerKey = serverKey;
-  app.innerHTML = `<main class="app-shell ${active ? "" : "no-server"}"><nav class="rail"><button class="home active-home ${incomingRequests.length ? "has-notice" : ""}" id="homeStart" title="Главная"><img src="/kitchat-icon.png" alt="Kitchat">${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><i></i>${serverButtons}<button class="add" id="createServer" title="Создать сервер">+</button><div class="rail-spacer"></div></nav><aside class="channels"><header><div><small>${active ? "СЕРВЕР" : "KITCHAT"}</small><b>${esc(active?.name || "Главная")}</b></div>${active && canManageServer ? `<button id="serverSettings" title="Настройки сервера">${ico("gear")}</button>` : ""}</header><div class="channel-scroll">${active ? `<div class="section"><span>ТЕКСТОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="text" title="Создать текстовый канал">+</button>' : ""}</div>${channelList(textChannels, "text")}<div class="section voice-title"><span>ГОЛОСОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="voice" title="Создать голосовой канал">+</button>' : ""}</div>${channelList(voiceChannels, "voice")}` : `<button class="home-nav-friends ${homePane.kind === "friends" ? "active" : ""}" type="button" id="homeFriends">${ico("users")}<span><b>Друзья</b><small>${friends.filter((p) => p.online).length} сейчас в сети</small></span></button><button class="home-nav-friends requests ${homePane.kind === "requests" ? "active" : ""}" type="button" id="homeRequests">${ico("bell")}<span><b>Заявки в друзья</b><small>${incomingRequests.length ? `${incomingRequests.length} новых` : "Новых заявок нет"}</small></span>${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><section class="dm-sidebar-card"><div class="section dm-title"><span>ЛИЧНЫЕ СООБЩЕНИЯ</span><button type="button" id="homeNewDm" title="Новое сообщение">+</button></div><div class="dm-thread-list">${dmThreadRows || `<div class="dm-empty-hint">${ico("chat")}<b>Диалогов пока нет</b><small>Начните личную переписку с другом</small></div>`}</div></section>`}</div>${dockMarkup()}<section class="profile"><div class="avatar">${avatar(user)}<i></i></div><div><b>${esc(user.name)}</b><small>${isSupreme ? "Самый главный" : "В сети"}</small></div><button id="selfMute" class="${getVoicePreferences().muted ? "off" : ""}" aria-pressed="${getVoicePreferences().muted}" title="Микрофон">${ico("mic")}</button><button id="selfDeafen" class="${getVoicePreferences().deafened ? "off" : ""}" aria-pressed="${getVoicePreferences().deafened}" title="Наушники">${ico("headphones")}</button><button id="userSettings" title="Настройки">${ico("gear")}</button><button id="logout" title="Выйти">${ico("phone-down")}</button></section></aside><section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Добавить друга">${ico("users")}</button>` : ""}</header>${active ? memberRows(state.server_members) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside></main>`;
+  const onPhone = phoneLayout.matches;
+  const profileMarkup = `<section class="profile"><div class="avatar">${avatar(user)}<i></i></div><div><b>${esc(user.name)}</b><small>${isSupreme ? "Самый главный" : "В сети"}</small></div><button id="selfMute" class="${getVoicePreferences().muted ? "off" : ""}" aria-pressed="${getVoicePreferences().muted}" title="Микрофон">${ico("mic")}</button><button id="selfDeafen" class="${getVoicePreferences().deafened ? "off" : ""}" aria-pressed="${getVoicePreferences().deafened}" title="Наушники">${ico("headphones")}</button><button id="userSettings" title="Настройки">${ico("gear")}</button><button id="logout" title="Выйти">${ico("phone-down")}</button></section>`;
+  const channelContent = `${active ? `<div class="section"><span>ТЕКСТОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="text" title="Создать текстовый канал">+</button>' : ""}</div>${channelList(textChannels, "text")}<div class="section voice-title"><span>ГОЛОСОВЫЕ КАНАЛЫ</span>${canManageChannels ? '<button data-create-channel="voice" title="Создать голосовой канал">+</button>' : ""}</div>${channelList(voiceChannels, "voice")}` : `<button class="home-nav-friends ${homePane.kind === "friends" ? "active" : ""}" type="button" id="homeFriends">${ico("users")}<span><b>Друзья</b><small>${friends.filter((p) => p.online).length} сейчас в сети</small></span></button><button class="home-nav-friends requests ${homePane.kind === "requests" ? "active" : ""}" type="button" id="homeRequests">${ico("bell")}<span><b>Заявки в друзья</b><small>${incomingRequests.length ? `${incomingRequests.length} новых` : "Новых заявок нет"}</small></span>${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><section class="dm-sidebar-card"><div class="section dm-title"><span>ЛИЧНЫЕ СООБЩЕНИЯ</span><button type="button" id="homeNewDm" title="Новое сообщение">+</button></div><div class="dm-thread-list">${dmThreadRows || `<div class="dm-empty-hint">${ico("chat")}<b>Диалогов пока нет</b><small>Начните личную переписку с другом</small></div>`}</div></section>`}`;
+  const desktopNavigation = `<nav class="rail"><button class="home active-home ${incomingRequests.length ? "has-notice" : ""}" id="homeStart" title="Главная"><img src="/kitchat-icon.png" alt="Kitchat">${incomingRequests.length ? `<em>${incomingRequests.length}</em>` : ""}</button><i></i>${serverButtons}<button class="add" id="createServer" title="Создать сервер">+</button><div class="rail-spacer"></div></nav><aside class="channels"><header><div><small>${active ? "СЕРВЕР" : "KITCHAT"}</small><b>${esc(active?.name || "Главная")}</b></div>${active && canManageServer ? `<button id="serverSettings" title="Настройки сервера">${ico("gear")}</button>` : ""}</header><div class="channel-scroll">${channelContent}</div>${dockMarkup()}${profileMarkup}</aside>`;
+  const navigation = onPhone ? mobileServerScreen({
+    title: esc(active?.name || "Сообщения"),
+    servers: serverButtons,
+    requestCount: incomingRequests.length,
+    serverSettings: Boolean(active && canManageServer),
+    isServer: Boolean(active),
+    channelContent: active ? [
+      { kind: "text", title: "Текстовые каналы", rows: channelList(textChannels, "text", true) },
+      { kind: "voice", title: "Голосовые каналы", rows: channelList(voiceChannels, "voice", true) },
+    ].map(({ kind, title, rows }) => mobileChannelGroup(kind, title, rows, canManageChannels)).join("") : mobileInbox(dmThreadRows, friends.filter((person) => person.online).length, incomingRequests.length),
+    profileMarkup: mobileAccount(esc(user.name), avatar(user), getVoicePreferences().muted, getVoicePreferences().deafened),
+    voiceDock: dockMarkup(),
+  }) : desktopNavigation;
+  app.innerHTML = `<main class="app-shell ${onPhone ? "phone-shell" : ""} ${active ? "" : "no-server"}">${navigation}<section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Пригласить участников">${ico("user-plus")}<span class="mobile-invite-label">Пригласить</span></button>` : ""}</header>${active ? memberRows(state.server_members) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside>${onPhone ? mobileChatHeader(esc(active ? (selected ? "#" + selected.name : active.name) : (dmPeer?.name || (homePane.kind === "requests" ? "Уведомления" : "Друзья"))), Boolean(active), state.server_members.filter((member) => member.online).length) : ""}<header class="mobile-members-bar"><button type="button" class="mobile-back" data-mobile-pane="chat" aria-label="Назад в чат">${ico("chevron-right")}</button><div class="mobile-chat-title"><b>${esc(selected?.name ? "#" + selected.name : "Участники")}</b><small>Информация о канале</small></div></header>${mobileHomeMarkup({ name: esc(user.name), login: esc(user.login), avatar: avatar(user) })}</main>`;
+  bindMobileNavigation();
   paletteSources = () => [
     ...sortedServers.map((server) => ({ group: "Серверы", label: server.name, hint: server.id === active?.id ? "открыт" : undefined, icon: server.icon ? `<img src="${esc(assetUrl(server.icon))}" alt="">` : esc(server.name.slice(0, 2).toUpperCase()), run: () => void shellView(server.id, "") })),
     ...(active ? textChannels.map((channel) => ({ group: `Каналы · ${active.name}`, label: channel.name, hint: channel.topic || undefined, icon: svgIcon("hash"), run: () => void shellView(active.id, channel.slug) })) : []),
     ...(active ? voiceChannels.map((channel) => ({ group: `Голосовые · ${active.name}`, label: channel.name, hint: channel.id === activeVoiceChannel ? "вы здесь" : undefined, icon: svgIcon("volume"), run: () => document.querySelector<HTMLButtonElement>(`[data-voice="${channel.id}"]`)?.click() })) : []),
-    ...friends.map((person) => ({ group: "Друзья", label: person.name, hint: person.online ? "в сети" : "не в сети", icon: avatar(person), run: () => { homePane = { kind: "dm", userId: person.id }; void shellView(0, "", true); } })),
+    ...friends.map((person) => ({ group: "Друзья", label: person.name, hint: person.online ? "в сети" : "не в сети", icon: avatar(person), run: () => { homePane = { kind: "dm", userId: person.id }; app.dataset.mobilePane = "chat"; void shellView(0, "", true); } })),
   ];
   const channelScroll = document.querySelector<HTMLElement>(".channel-scroll");
   if (channelScroll) {
@@ -2055,7 +2224,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   }
   if (navigated) document.querySelector(".chat")?.classList.add("view-enter");
   paintVoiceDuration();
-  if (homePane.kind === "requests") friendsFilter = "incoming";
+  if (homePane.kind === "requests") { friendsFilter = "incoming"; friendsQuery = ""; }
   const membersPanel = document.querySelector<HTMLElement>(".members")!;
   const presenceHealth = document.createElement("small");
   presenceHealth.className = "presence-health";
@@ -2073,6 +2242,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     if (person) openUserProfileMenu(event.clientX, event.clientY, { ...person, login: "login" in person ? person.login : "" });
   });
   const paintFriends = () => {
+    document.querySelector(".social-hub")?.classList.toggle("phone-notifications", phoneLayout.matches && homePane.kind === "requests");
     const list = document.querySelector<HTMLElement>(".social-hub .home-friends-list");
     if (list) {
       const markup = friendRows(state.people, friendsFilter, friendsQuery, avatar);
@@ -2129,6 +2299,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       paintFriends();
       const online = state.people.filter(person => person.friend_status === 1 && person.online);
       const incoming = state.people.filter(person => person.friend_status === 0 && !person.sent_by_me);
+      const mobileOnline = app.querySelector("[data-mobile-online]");
+      if (mobileOnline) mobileOnline.textContent = `${state.server_members.filter((member) => member.online).length} в сети`;
       const header = membersPanel.querySelector("header b");
       if (header) header.textContent = active ? `Участники — ${state.server_members.length}` : `В сети — ${online.length}`;
       membersBody.innerHTML = active ? memberRows(state.server_members) : memberRows(online.map(person => ({ ...person, login: "" }))) || '<p class="dm-right-empty">Друзья появятся здесь, когда будут в сети.</p>';
@@ -2171,25 +2343,39 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   window.addEventListener("focus", wakeSocial); window.addEventListener("online", wakeSocial); document.addEventListener("visibilitychange", wakeSocial);
   socialTimer = window.setTimeout(socialLoop, 300);
   socialCleanup = () => { syncStopped = true; clearTimeout(socialTimer); socialAbort?.abort(); window.removeEventListener("focus",wakeSocial); window.removeEventListener("online",wakeSocial); document.removeEventListener("visibilitychange",wakeSocial); };
+  const pendingFriendActions = new Set<number>();
   document.querySelector<HTMLElement>(".social-hub")?.addEventListener("click", async event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button");
     if (!button || button.disabled) return;
     if (button.dataset.friendsFilter) {
       friendsFilter = button.dataset.friendsFilter as FriendFilter;
+      friendsQuery = "";
+      if (friendInput) friendInput.value = "";
       homePane = {kind: friendsFilter === "incoming" ? "requests" : "friends"}; paintFriends(); return;
     }
-    if (button.dataset.socialDm) { homePane = {kind:"dm",userId:Number(button.dataset.socialDm)}; await shellView(0,"",true); return; }
+    if (button.dataset.socialDm) { homePane = {kind:"dm",userId:Number(button.dataset.socialDm)}; app.dataset.mobilePane = "chat"; await shellView(0,"",true); return; }
     const mode = button.dataset.socialAction;
     const id = Number(button.dataset.user);
-    if (!mode || !id) return;
+    if (!mode || !id || pendingFriendActions.has(id)) return;
     if (mode === "remove" && !(await appConfirm("Удалить из друзей", "Личная переписка сохранится. Удалить друга?", true))) return;
-    button.disabled = true;
+    pendingFriendActions.add(id);
+    const actions = button.closest(".friend-row-actions")?.querySelectorAll<HTMLButtonElement>("button");
+    actions?.forEach((action) => { action.disabled = true; });
+    const label = button.textContent;
+    button.textContent = "Сохраняем…";
     try {
-      await community({}, {action:"friend",user_id:id,mode});
-      await syncSocial();
+      await changeFriend(id, mode);
+      if (mode === "accept") { friendsFilter = "all"; friendsQuery = ""; homePane = { kind: "friends" }; }
+      await shellView(0, "", true);
       showAppNotice("Друзья", mode === "accept" ? "Заявка принята" : mode === "cancel" ? "Заявка отменена" : mode === "reject" ? "Заявка отклонена" : "Друг удалён");
     } catch (error) { await appAlert(error instanceof Error ? error.message : "Не удалось выполнить действие"); }
-    finally { if (button.isConnected) button.disabled = false; }
+    finally {
+      pendingFriendActions.delete(id);
+      if (button.isConnected) {
+        button.textContent = label;
+        actions?.forEach((action) => { action.disabled = false; });
+      }
+    }
   });
 
   const messageList = document.querySelector<HTMLElement>(".messages");
@@ -2253,16 +2439,61 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     homePane = { kind: "friends" };
     void shellView(0, "", true);
   });
-  document.querySelector<HTMLButtonElement>("#homeFriends")?.addEventListener("click", () => { homePane = { kind: "friends" }; void shellView(0, "", true); });
-  document.querySelector<HTMLButtonElement>("#homeRequests")?.addEventListener("click", () => { homePane = { kind: "requests" }; void shellView(0, "", true); });
+  const openHomeFriends = (kind: "friends" | "requests") => {
+    if (phoneLayout.matches && kind === "requests") {
+      const sheet = modal("Уведомления", `<section class="notification-sheet-list">${friendRows(state.people, "incoming", "", avatar)}</section>`, "Закрыть", async () => {});
+      sheet.classList.add("notification-sheet");
+      sheet.setAttribute("role", "dialog");
+      sheet.setAttribute("aria-label", "Уведомления");
+      sheet.querySelector(".modal-actions")?.remove();
+      sheet.addEventListener("click", async (event) => {
+        const button = (event.target as Element).closest<HTMLButtonElement>("[data-social-action]");
+        if (!button || button.disabled) return;
+        const row = button.closest("article");
+        row?.querySelectorAll("button").forEach(item => { item.disabled = true; });
+        const error = sheet.querySelector<HTMLElement>(".modal-error")!;
+        error.textContent = "";
+        try {
+          await changeFriend(Number(button.dataset.user), button.dataset.socialAction || "reject");
+          const fresh: CommunityState = await community({server_id: 0});
+          state.people = fresh.people;
+          sheet.querySelector(".notification-sheet-list")!.innerHTML = friendRows(state.people, "incoming", "", avatar);
+          paintFriends();
+        } catch (reason) {
+          error.textContent = reason instanceof Error ? reason.message : "Не удалось обновить заявку";
+          row?.querySelectorAll("button").forEach(item => { item.disabled = false; });
+        }
+      });
+      return;
+    }
+    homePane = { kind };
+    friendsFilter = kind === "requests" ? "incoming" : "all";
+    friendsQuery = "";
+    const hub = app.querySelector(".social-hub");
+    const shell = app.querySelector<HTMLElement>(".app-shell");
+    if (!hub || !shell) {
+      if (phoneLayout.matches) app.dataset.mobilePane = "chat";
+      void shellView(0, "", true);
+      return;
+    }
+    if (friendInput) friendInput.value = "";
+    const title = shell.querySelector(".mobile-chat-bar .mobile-chat-title b");
+    if (title) title.textContent = kind === "requests" ? "Уведомления" : "Друзья";
+    paintFriends();
+    selectMobilePane(shell, "chat");
+  };
+  document.querySelector("#homeFriends")?.addEventListener("click", () => openHomeFriends("friends"));
+  document.querySelector("#homeRequests")?.addEventListener("click", () => openHomeFriends("requests"));
+  document.querySelector("#mobileAccountRequests")?.addEventListener("click", () => openHomeFriends("requests"));
   document.querySelector<HTMLButtonElement>("#friendsTabAll")?.addEventListener("click", () => { homePane = { kind: "friends" }; void shellView(0, "", true); });
   document.querySelector<HTMLButtonElement>("#friendsTabRequests")?.addEventListener("click", () => { homePane = { kind: "requests" }; void shellView(0, "", true); });
-  document.querySelectorAll<HTMLButtonElement>("[data-dm-user],[data-message-friend]").forEach((button) => button.addEventListener("click", () => { const id = Number(button.dataset.dmUser || button.dataset.messageFriend || 0); if (!id) return; homePane = { kind: "dm", userId: id }; void shellView(0, "", true); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-dm-user],[data-message-friend]").forEach((button) => button.addEventListener("click", () => { const id = Number(button.dataset.dmUser || button.dataset.messageFriend || 0); if (!id) return; homePane = { kind: "dm", userId: id }; app.dataset.mobilePane = "chat"; void shellView(0, "", true); }));
   document.querySelector<HTMLElement>(".social-hub")?.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLElement>("[data-social-add]");
     if (button) friendsModal(0, () => void syncSocial(), state.people, false);
   });
   const openFriendPicker = () => friendsModal(0, () => void syncSocial(), state.people, false);
+  document.querySelector("#mobileAddFriend")?.addEventListener("click", openFriendPicker);
   document.querySelector<HTMLButtonElement>("#homeAddFriend")?.addEventListener("click", openFriendPicker);
   document.querySelector<HTMLButtonElement>("#homeAddFriendSecondary")?.addEventListener("click", openFriendPicker);
   document.querySelector<HTMLButtonElement>("#homeAddFriendEmpty")?.addEventListener("click", openFriendPicker);
@@ -2279,7 +2510,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     try {
       const accepted = button.dataset.friendRequest === "accept";
       const person = state.people.find((item) => item.id === id);
-      await community({}, { action: "friend", user_id: id, mode: button.dataset.friendRequest || "reject" });
+      await changeFriend(id, button.dataset.friendRequest || "reject");
       showAppNotice(accepted ? "Заявка принята" : "Заявка отклонена", accepted ? `${person?.name || "Пользователь"} теперь в списке друзей` : "Запрос удалён", accepted ? "success" : "message");
       await shellView(0, "", true);
     } catch (error) {
@@ -2584,7 +2815,16 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     .querySelectorAll<HTMLButtonElement>("[data-channel]")
     .forEach(
       (b) =>
-        (b.onclick = () => void shellView(active!.id, b.dataset.channel || "")),
+        (b.onclick = (event) => {
+          if ((event.target as Element).closest("[data-edit-channel]")) return;
+          const shell = b.closest<HTMLElement>(".app-shell");
+          const slug = b.dataset.channel || "";
+          if (phoneLayout.matches && shell) {
+            selectMobilePane(shell, "chat");
+            if (slug === selected?.slug && !shell.querySelector(".call-screen")) return;
+          }
+          void shellView(active!.id, slug);
+        }),
     );
   document.querySelectorAll<HTMLElement>("[data-edit-channel]").forEach(
     (button) =>
@@ -2627,15 +2867,30 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
             active?.id || 0,
             button.dataset.voiceMode === "p2p" ? "p2p" : "livekit",
           );
-          // Переключения выполняются строго по очереди: второй клик больше не может
-          // обогнать отключение от предыдущего канала.
-          voiceSwitchPromise = voiceSwitchPromise.catch(() => {}).then(() => callView(
-            channelId,
-            button.dataset.voiceName || "Голосовой канал",
-            active?.name || "",
-            active?.id || 0,
-            button.dataset.voiceMode === "p2p" ? "p2p" : "livekit",
-          ));
+          const join = () => {
+            // Переключения выполняются строго по очереди: второй клик больше не может
+            // обогнать отключение от предыдущего канала.
+            voiceSwitchPromise = voiceSwitchPromise.catch(() => {}).then(() => callView(
+              channelId,
+              button.dataset.voiceName || "Голосовой канал",
+              active?.name || "",
+              active?.id || 0,
+              button.dataset.voiceMode === "p2p" ? "p2p" : "livekit",
+            ));
+          };
+          if (!phoneLayout.matches) { join(); return; }
+          const preview = document.createElement("dialog");
+          preview.className = "mobile-voice-preview";
+          preview.innerHTML = `<header><button type="button" data-voice-close aria-label="Закрыть">${ico("chevron-down")}</button><h2>${esc(button.dataset.voiceName || "Голосовой канал")}</h2></header><div class="mobile-voice-people"></div><button type="button" data-voice-join>Присоединиться к голосовому каналу</button>`;
+          const people = button.parentElement?.querySelector(".voice-presence");
+          const list = preview.querySelector(".mobile-voice-people")!;
+          if (people?.childElementCount) list.append(people.cloneNode(true));
+          else list.textContent = "В голосовом канале пока никого нет.";
+          preview.addEventListener("close", () => preview.remove(), { once: true });
+          preview.querySelector("[data-voice-close]")?.addEventListener("click", () => preview.close());
+          preview.querySelector("[data-voice-join]")?.addEventListener("click", () => { preview.close(); join(); });
+          document.body.append(preview);
+          preview.showModal();
         }),
     );
   document.querySelector<HTMLButtonElement>("#selfMute")!.onclick = () => {
@@ -2749,6 +3004,34 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
         });
       }
     });
+  if (active) {
+    const channelInfo = document.querySelector(".mobile-members-bar");
+    const membersList = document.querySelector(".members");
+    const tabs = document.createElement("div");
+    tabs.className = "mobile-info-tabs";
+    tabs.innerHTML = '<button type="button" data-channel-info="members" aria-pressed="true">Участники</button><button type="button" data-channel-info="media" aria-pressed="false">Медиа</button>';
+    channelInfo?.append(tabs);
+    const media = document.createElement("section");
+    media.className = "mobile-channel-media";
+    media.hidden = true;
+    media.setAttribute("aria-label", "Медиа канала");
+    membersList?.after(media);
+    tabs.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-channel-info]");
+      if (!button) return;
+      const showingMedia = button.dataset.channelInfo === "media";
+      tabs.querySelectorAll("button").forEach((tab) => tab.setAttribute("aria-pressed", String(tab === button)));
+      membersList?.classList.toggle("mobile-media-selected", showingMedia);
+      if (membersList instanceof HTMLElement) membersList.inert = showingMedia;
+      media.inert = !showingMedia;
+      media.hidden = !showingMedia;
+      if (showingMedia) {
+        const attachments = [...(messageList?.querySelectorAll(".chat-media, .chat-audio, .chat-file") || [])];
+        media.replaceChildren(...attachments.reverse().map((item) => item.cloneNode(true)));
+        if (!attachments.length) media.textContent = "В загруженных сообщениях пока нет вложений.";
+      }
+    });
+  }
   const openFriends = () =>
     friendsModal(
       active?.id || 0,
@@ -2794,9 +3077,10 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     });
   document.querySelector<HTMLButtonElement>("#userSettings")!.onclick =
     async () => {
-      let devices: MediaDeviceInfo[] = [];
+      let devices: MediaDeviceInfo[] = mobileDevices;
       try {
-        devices = await navigator.mediaDevices.enumerateDevices();
+        if (!phoneLayout.matches) devices = await navigator.mediaDevices.enumerateDevices();
+        else void navigator.mediaDevices.enumerateDevices().then(items => { mobileDevices = items; }).catch(() => {});
       } catch {
         devices = await navigator.mediaDevices
           .enumerateDevices()
@@ -2810,7 +3094,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
               `<option value="${esc(device.deviceId)}" ${device.deviceId === saved ? "selected" : ""}>${esc(device.label || `Устройство ${index + 1}`)}</option>`,
           )
           .join("")}`;
-      const ownAbout = await loadProfileAbout(user.id);
+      const ownAbout = profileAboutCache.get(user.id) ?? localProfileAbout(user.id);
+      void loadProfileAbout(user.id);
       const settings = modal(
         "Настройки профиля",
         `<div class="settings-layout"><aside class="settings-sidebar"><div class="settings-user"><div class="avatar">${avatar(user)}</div><span><b>${esc(user.name)}</b><small>${esc(user.login)}</small></span></div><button type="button" data-settings-tab="account">Мой аккаунт</button><button type="button" data-settings-tab="voice">Голос и видео</button><button type="button" data-settings-tab="notifications">Уведомления</button><button type="button" data-settings-tab="appearance">Внешний вид</button><button type="button" class="danger-link" id="settingsLogout">Выйти</button></aside><div class="settings-pages"><section data-settings-panel="account"><h2>Мой аккаунт</h2><div class="account-preview"><div class="avatar"><img id="avatarPreview" ${user.avatar ? `src="${esc(assetUrl(user.avatar))}"` : ""} alt=""></div><div><b>${esc(user.name)}</b><small>${esc(user.login)} · ID ${user.id}</small></div></div><label>Отображаемое имя<input name="name" maxlength="40" value="${esc(user.name)}" required></label><label class="profile-about-editor">О себе <small>До 190 символов · видно участникам в карточке профиля</small><textarea name="about" maxlength="190" placeholder="Например: люблю кооперативы, котов и ночные посиделки ✨">${esc(ownAbout)}</textarea><span class="about-counter" data-about-counter>${ownAbout.length}/190</span></label><label>Новая аватарка <small>JPG, PNG, WEBP или GIF до 5 МБ</small><input name="avatar" data-preview="#avatarPreview" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label></section><section data-settings-panel="voice"><h2>Голос и видео</h2><p>Выберите устройства и способ активации микрофона.</p><div class="device-grid"><label>Микрофон<select name="microphone">${options("audioinput", localStorage.getItem("kitchat_microphone") || "")}</select></label><label>Динамики<select name="speaker">${options("audiooutput", localStorage.getItem("kitchat_speaker") || "")}</select></label><label>Камера<select name="camera">${options("videoinput", localStorage.getItem("kitchat_camera") || "")}</select></label></div><div class="device-test"><video id="cameraPreview" muted autoplay playsinline></video><div><b>Проверка устройств</b><small>Вы увидите камеру и уровень микрофона до сохранения.</small><div class="mic-meter"><i id="micMeter"></i></div><button id="testDevices" type="button">Проверить микрофон и камеру</button></div></div><div class="range-grid"><label>Громкость микрофона<input name="mic_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_mic_volume") || "100"}"></label><label>Громкость динамиков<input name="speaker_volume" type="range" min="0" max="100" value="${localStorage.getItem("kitchat_speaker_volume") || "100"}"></label></div><h3>Режим ввода</h3><div class="input-mode"><label><input name="input_mode" type="radio" value="voice" ${localStorage.getItem("kitchat_input_mode") !== "ptt" ? "checked" : ""}><span><b>Активация по голосу</b><small>Микрофон включается автоматически</small></span></label><label><input name="input_mode" type="radio" value="ptt" ${localStorage.getItem("kitchat_input_mode") === "ptt" ? "checked" : ""}><span><b>Режим рации</b><small>Удерживайте выбранную клавишу, чтобы говорить</small></span></label></div><label>Клавиша рации<input name="ptt_key" value="${esc(localStorage.getItem("kitchat_ptt_key") || "Space")}" readonly></label><label class="check-setting"><input name="noise" type="checkbox" ${localStorage.getItem("kitchat_noise") !== "0" ? "checked" : ""}><span><b>Шумоподавление</b><small>Уменьшает постоянный фоновый шум</small></span></label><label class="check-setting"><input name="echo" type="checkbox" ${localStorage.getItem("kitchat_echo") !== "0" ? "checked" : ""}><span><b>Эхоподавление</b><small>Убирает звук динамиков из микрофона</small></span></label><label class="check-setting"><input name="gain" type="checkbox" ${localStorage.getItem("kitchat_gain") !== "0" ? "checked" : ""}><span><b>Автоматическая регулировка усиления</b><small>Выравнивает громкость голоса</small></span></label></section><section data-settings-panel="notifications"><h2>Уведомления</h2><p>Получайте сообщения и заявки, даже когда Kitchat работает в фоне.</p><label class="check-setting"><input name="notifications" type="checkbox" ${localStorage.getItem("kitchat_notifications") !== "0" ? "checked" : ""}><span><b>Системные уведомления</b><small>Windows и macOS попросят разрешение при первом запуске</small></span></label><div class="notification-test-card"><span>${ico("bell")}</span><div><b>Проверка уведомлений</b><small id="notificationTestStatus">Отправьте тест и убедитесь, что система показывает его.</small></div><button id="testNotification" type="button">Отправить тест</button></div><label class="check-setting"><input name="sounds" type="checkbox" ${localStorage.getItem("kitchat_sounds") !== "0" ? "checked" : ""}><span><b>Звуки интерфейса</b><small>Подключение, сообщения и трансляции</small></span></label></section><section data-settings-panel="appearance"><h2>Внешний вид</h2><p>Выберите оформление Kitchat.</p><div class="theme-picker">${([['standard','Стандартный','Оригинальное тёмное оформление Kitchat'],['pink','Фиолетовый','Мягкое сливово-фиолетовое оформление'],['hotpink','Ярко-розовый','Светлый розовый с лепестками'],['light','Светлая','Светлый и воздушный интерфейс'],['aurora','Северное сияние','Тёмная бирюзово-зелёная тема'],['sunset','Закат','Тёплый оранжево-коралловый вечер']] as const).map(([value,title,description]) => `<label class="theme-option theme-${value}"><input type="radio" name="theme" value="${value}" ${(localStorage.getItem("kitchat_theme") || "standard") === value ? "checked" : ""}><span class="theme-preview"><i></i><i></i><i></i></span><span><b>${title}</b><small>${description}</small></span></label>`).join("")}</div><label class="check-setting"><input name="compact" type="checkbox" ${localStorage.getItem("kitchat_compact") === "1" ? "checked" : ""}><span><b>Компактный режим</b><small>Больше сообщений на экране</small></span></label></section></div></div>`,
@@ -3449,8 +3734,10 @@ document.addEventListener("fullscreenchange", () => {
 });
 document.addEventListener("click", (event) => {
   if (!(event.target as HTMLElement).closest("[data-voice-return]") || !activeVoiceChannel || !activeVoiceRoom) return;
-  restoreCallOnRender = true;
-  void shellView(activeVoiceServerId, "");
+  if (!restorePhoneVoice()) {
+    restoreCallOnRender = true;
+    void shellView(activeVoiceServerId, "");
+  }
 });
 document.addEventListener("submit", (event) => {
   if ((event.target as HTMLElement).matches("#messageForm")) playSound("send");
@@ -3537,8 +3824,21 @@ async function callViewLiveKit(
   );
   if (connectionLabel)
     connectionLabel.textContent = "Устанавливаем голосовую связь…";
-  host.innerHTML = `<main class="call-screen embedded"><header class="embedded-call-header"><div><b>${esc(name)}</b><small>${esc(serverName)} · Голосовой канал</small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="video-grid" id="videoGrid"></div></section><footer class="call-controls"><button id="callMic">${ico("mic")}</button><button id="callCamera">${ico("camera")}</button><button id="callShare">${ico("video-message")}</button><button id="callDeafen">${ico("headphones")}</button><button id="callFullscreen">${ico("focus")}</button><button id="callLeave" class="danger">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
+  host.innerHTML = `<main class="call-screen embedded"><header class="embedded-call-header"><button type="button" class="mobile-call-back mobile-back" data-mobile-pane="channels" aria-label="Назад к каналам">${ico("chevron-right")}</button><div class="call-heading"><b>${esc(name)}</b><small>${esc(serverName)} · Голосовой канал</small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="video-grid" id="videoGrid"></div></section><footer class="call-controls"><button id="callMic">${ico("mic")}</button><button id="callCamera">${ico("camera")}</button><button id="callShare">${ico("video-message")}</button><button id="callDeafen">${ico("headphones")}</button><button id="callFullscreen">${ico("focus")}</button><button id="callLeave" class="danger">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
   activeVoiceRoom = host.querySelector(".call-screen");
+  if (host.id === "phoneVoiceHost") {
+    host.querySelector(".mobile-call-back")?.addEventListener("click", () => {
+      host.hidden = true;
+      const resume = document.createElement("button");
+      resume.id = "phoneVoiceReturn";
+      resume.type = "button";
+      resume.innerHTML = `${ico("signal")}<span>${esc(activeVoiceMeta?.name || "Голосовой канал")}</span><time data-voice-duration>${voiceDurationText()}</time>${ico("chevron-right")}`;
+      resume.onclick = () => { restorePhoneVoice(); };
+      document.body.append(resume);
+    });
+  }
+  const mobileShell = host.closest<HTMLElement>(".app-shell");
+  if (mobileShell) selectMobilePane(mobileShell, "chat");
   const room = new Room({
     adaptiveStream: true,
     dynacast: true,
@@ -3953,6 +4253,7 @@ async function callViewP2P(
   serverId = 0,
 ) {
   if (activeVoiceChannel === channelId) {
+    if (restorePhoneVoice()) return;
     const chat = document.querySelector<HTMLElement>(".chat");
     if (activeVoiceRoom && chat) undockCallMini(chat);
     return;
@@ -3962,7 +4263,7 @@ async function callViewP2P(
     changingVoiceChannel = true;
     try { await activeVoiceLeave(); } finally { changingVoiceChannel = false; }
   }
-  const host = document.querySelector<HTMLElement>(".chat") || app;
+  const host = phoneLayout.matches ? openPhoneVoiceHost() : document.querySelector<HTMLElement>(".chat") || app;
   const me = currentUser!;
   const local = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -3983,8 +4284,10 @@ async function callViewP2P(
   paintActiveVoiceChannel();
   document.querySelectorAll("#voiceDockApp").forEach((node) => node.remove());
   document.querySelector<HTMLElement>(".profile")?.insertAdjacentHTML("beforebegin", dockMarkup());
-  host.innerHTML = `<main class="call-screen embedded p2p-call"><header class="embedded-call-header"><div><b>${esc(name)}</b><small>${esc(serverName)} · <time data-voice-duration>${voiceDurationText()}</time></small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="p2p-screen-grid" id="p2pScreens"></div><div class="video-grid voice-only-grid" id="videoGrid"></div><div class="call-reactions-layer" id="callReactions"></div><aside class="roulette-panel" id="roulettePanel" hidden><header><div><small>ВЕЧЕРНИЙ ХАОС</small><b>Рулетка ников</b></div><button type="button" id="rouletteClose" aria-label="Закрыть">×</button></header><div class="roulette-live" id="rouletteLive"><div class="roulette-machine" id="rouletteMachine"><div class="roulette-machine-light"></div><div class="roulette-reel-block word-reel"><small>СЛОВО</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteWordReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Добавьте слова</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-link">×</div><div class="roulette-reel-block user-reel"><small>УЧАСТНИК</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteUserReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Кто попадётся?</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-spin-status" id="rouletteSpinStatus">Готовы к хаосу</div></div><div class="roulette-result" id="rouletteResult" aria-live="polite"></div></div><div class="roulette-locked" id="rouletteLocked"></div><form class="roulette-word-form" id="rouletteWordForm"><label><span>Слово / ник</span><input name="word" maxlength="32" placeholder="например: ПЕЛЬМЕНЬ" required></label><div class="roulette-form-row"><label><span>На сколько</span><select name="duration"><option value="30">30 сек</option><option value="60" selected>1 мин</option><option value="180">3 мин</option><option value="300">5 мин</option><option value="600">10 мин</option></select></label><label class="roulette-color"><span>Цвет</span><input name="color" type="color" value="#a970ff"></label><button type="submit">Добавить</button></div></form><div class="roulette-word-list" id="rouletteWordList"></div><button type="button" class="roulette-spin" id="rouletteSpin">КРУТИТЬ РУЛЕТКУ</button><div class="roulette-history" id="rouletteHistory"></div></aside></section><footer class="call-controls"><div class="call-controls-group"><button id="callMic" title="Микрофон · Ctrl+Shift+M">${ico("mic")}</button><button id="callDeafen" title="Звук · Ctrl+Shift+D">${ico("headphones")}</button></div><div class="call-controls-group"><button id="callCamera" title="Камера">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button></div><div class="call-controls-group"><span class="kc-react-wrap"><button id="callReact" title="Реакции">${ico("react")}</button></span><button id="callRoulette" title="Рулетка ников">${ico("dice")}</button><button id="callFullscreen" title="Сцена на весь экран">${ico("focus")}</button></div><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
+  host.innerHTML = `<main class="call-screen embedded p2p-call"><header class="embedded-call-header"><button type="button" class="mobile-call-back mobile-back" data-mobile-pane="channels" aria-label="Назад к каналам">${ico("chevron-right")}</button><div class="call-heading"><b>${esc(name)}</b><small>${esc(serverName)} · <time data-voice-duration>${voiceDurationText()}</time></small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="p2p-screen-grid" id="p2pScreens"></div><div class="video-grid voice-only-grid" id="videoGrid"></div><div class="call-reactions-layer" id="callReactions"></div><aside class="roulette-panel" id="roulettePanel" hidden><header><div><small>ВЕЧЕРНИЙ ХАОС</small><b>Рулетка ников</b></div><button type="button" id="rouletteClose" aria-label="Закрыть">×</button></header><div class="roulette-live" id="rouletteLive"><div class="roulette-machine" id="rouletteMachine"><div class="roulette-machine-light"></div><div class="roulette-reel-block word-reel"><small>СЛОВО</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteWordReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Добавьте слова</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-link">×</div><div class="roulette-reel-block user-reel"><small>УЧАСТНИК</small><div class="roulette-reel-window"><div class="roulette-reel-edge top"></div><div class="roulette-reel-track" id="rouletteUserReel"><span class="roulette-reel-ghost" data-reel-prev>—</span><b data-reel-current>Кто попадётся?</b><span class="roulette-reel-ghost" data-reel-next>—</span></div><div class="roulette-reel-focus"></div></div></div><div class="roulette-spin-status" id="rouletteSpinStatus">Готовы к хаосу</div></div><div class="roulette-result" id="rouletteResult" aria-live="polite"></div></div><div class="roulette-locked" id="rouletteLocked"></div><form class="roulette-word-form" id="rouletteWordForm"><label><span>Слово / ник</span><input name="word" maxlength="32" placeholder="например: ПЕЛЬМЕНЬ" required></label><div class="roulette-form-row"><label><span>На сколько</span><select name="duration"><option value="30">30 сек</option><option value="60" selected>1 мин</option><option value="180">3 мин</option><option value="300">5 мин</option><option value="600">10 мин</option></select></label><label class="roulette-color"><span>Цвет</span><input name="color" type="color" value="#a970ff"></label><button type="submit">Добавить</button></div></form><div class="roulette-word-list" id="rouletteWordList"></div><button type="button" class="roulette-spin" id="rouletteSpin">КРУТИТЬ РУЛЕТКУ</button><div class="roulette-history" id="rouletteHistory"></div></aside></section><footer class="call-controls"><div class="call-controls-group"><button id="callMic" title="Микрофон · Ctrl+Shift+M">${ico("mic")}</button><button id="callDeafen" title="Звук · Ctrl+Shift+D">${ico("headphones")}</button></div><div class="call-controls-group"><button id="callCamera" title="Камера">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button></div><div class="call-controls-group"><span class="kc-react-wrap"><button id="callReact" title="Реакции">${ico("react")}</button></span><button id="callRoulette" title="Рулетка ников">${ico("dice")}</button><button id="callFullscreen" title="Сцена на весь экран">${ico("focus")}</button></div><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
   activeVoiceRoom = host.querySelector(".call-screen");
+  const mobileShell = host.closest<HTMLElement>(".app-shell");
+  if (mobileShell) selectMobilePane(mobileShell, "chat");
   const callHeader = host.querySelector<HTMLElement>(".embedded-call-header")!;
   const roomState = host.querySelector<HTMLElement>("#roomState")!;
   const callHeaderActions = document.createElement("div");
@@ -6153,6 +6456,7 @@ async function callViewP2P(
     await exitWindowMini();
     document.querySelector("#kcCallMini")?.remove();
     restoreCallOnRender = false;
+    document.querySelectorAll("#phoneVoiceHost, #phoneVoiceReturn").forEach((node) => node.remove());
     activeVoiceChannel = 0; activeVoiceMode = null; activeVoiceMeta = null; activeVoiceRoom = null;
     activeVoiceLeave = activeVoiceMute = activeVoiceDeafen = activeVoiceCamera = activeVoiceShare = null;
     activeVoiceSetUserVolume = null;
@@ -6259,7 +6563,7 @@ async function callViewLegacy(
     "joining";
   document.querySelector<HTMLElement>("#voiceConnectionLabel")!.textContent =
     "Подключение к голосовому каналу…";
-  host.innerHTML = `<main class="call-screen embedded"><header class="embedded-call-header"><div><b>${esc(name)}</b><small>${esc(serverName)} · Голосовой канал</small></div><span class="online"><i></i>Подключено</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="video-grid" id="videoGrid"><article class="video-tile local-tile" data-user="${me.id}"><video id="localVideo" autoplay muted playsinline></video><div class="voice-avatar"><span class="avatar">${avatar(me)}</span></div><footer>${esc(me.name)} <small>(Вы)</small><i class="muted-badge" hidden>⌁</i></footer></article></div></section><footer class="call-controls"><button id="callMic" title="Выключить микрофон">${ico("mic")}</button><button id="callCamera" title="Включить камеру">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button><button id="callDeafen" title="Не слышать других">${ico("headphones")}</button><button id="callFullscreen" title="Развернуть сцену">${ico("focus")}</button><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
+  host.innerHTML = `<main class="call-screen embedded"><header class="embedded-call-header"><button type="button" class="mobile-call-back mobile-back" data-mobile-pane="channels" aria-label="Назад к каналам">${ico("chevron-right")}</button><div class="call-heading"><b>${esc(name)}</b><small>${esc(serverName)} · Голосовой канал</small></div><span class="online"><i></i>Подключено</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="video-grid" id="videoGrid"><article class="video-tile local-tile" data-user="${me.id}"><video id="localVideo" autoplay muted playsinline></video><div class="voice-avatar"><span class="avatar">${avatar(me)}</span></div><footer>${esc(me.name)} <small>(Вы)</small><i class="muted-badge" hidden>⌁</i></footer></article></div></section><footer class="call-controls"><button id="callMic" title="Выключить микрофон">${ico("mic")}</button><button id="callCamera" title="Включить камеру">${ico("camera")}</button><button id="callShare" title="Демонстрация экрана">${ico("video-message")}</button><button id="callDeafen" title="Не слышать других">${ico("headphones")}</button><button id="callFullscreen" title="Развернуть сцену">${ico("focus")}</button><button id="callLeave" class="danger" title="Отключиться">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
   const peers = new Map<number, RTCPeerConnection>();
   const streams = new Map<number, MediaStream>();
   const initialVoicePrefs = getVoicePreferences();
@@ -6814,6 +7118,7 @@ async function installPendingUpdate(status?: HTMLElement | null) {
 }
 
 async function checkForUpdates(manual = false): Promise<void> {
+  if (mobileApp) return;
   if (updateCheckRunning) {
     if (manual) showAppNotice("Обновления", "Проверка уже идёт…");
     return updateCheckRunning;
@@ -6911,20 +7216,28 @@ async function showUpdateDialog() {
   };
 }
 async function start() {
-  appVersion = await getVersion().catch(() => appVersion);
-  // Checked independently of sign-in so logged-out clients still update.
-  scheduleUpdateChecks();
-  const appWindow = getCurrentWindow();
-  await appWindow.onCloseRequested(async (event) => {
-    event.preventDefault();
-    await appWindow.hide();
-  });
-  await listen("kitchat://app-exiting", () => { void flushSettingsBackup(); void markDesktopOffline(); });
-  await listen("kitchat://check-update", () => void checkForUpdates(true));
+  if (isTauri()) {
+    appVersion = await getVersion().catch(() => appVersion);
+    mobileApp = await invoke<boolean>("is_mobile_app").catch(() => false);
+  }
+  document.body.classList.toggle("platform-mobile", mobileApp);
+if (navigator.mediaDevices) void navigator.mediaDevices.enumerateDevices().then(items => { mobileDevices = items; }).catch(() => {});
+  if (mobileApp || phoneLayout.matches) trackMobileKeyboard();
+  if (isTauri() && !mobileApp) {
+    // Checked independently of sign-in so logged-out clients still update.
+    scheduleUpdateChecks();
+    const appWindow = getCurrentWindow();
+    await appWindow.onCloseRequested(async (event) => {
+      event.preventDefault();
+      await appWindow.hide();
+    });
+    await listen("kitchat://app-exiting", () => { void flushSettingsBackup(); void markDesktopOffline(); });
+    await listen("kitchat://check-update", () => void checkForUpdates(true));
+  }
   await onOpenUrl((urls) => {
     if (urls[0]) void acceptOAuth(urls[0]);
-  });
-  const opened = await getCurrent();
+  }).catch((error) => console.warn("Deep-link listener unavailable", error));
+  const opened = await getCurrent().catch(() => null);
   if (opened?.[0]) {
     await acceptOAuth(opened[0]);
     return;
@@ -6959,7 +7272,16 @@ async function start() {
   void ensureNotificationPermission();
   await shellView(0, "", true);
 }
+phoneLayout.addEventListener("change", () => {
+  if (!currentUser || !app.querySelector(".app-shell")) return;
+  const server = app.querySelector<HTMLButtonElement>(".rail [data-server].active");
+  const channel = app.querySelector<HTMLButtonElement>("[data-channel].active");
+  void shellView(Number(server?.dataset.server || 0), channel?.dataset.channel || "", !server);
+});
 void start();
+
+
+
 
 
 

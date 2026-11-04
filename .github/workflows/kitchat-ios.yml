@@ -1,0 +1,50 @@
+name: KitChat iPhone and iPad for SideStore
+on:
+  workflow_dispatch:
+  push:
+    branches: [mobile-ios]
+permissions:
+  contents: read
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+      - name: Install tools and dependencies
+        run: |
+          rustup target add aarch64-apple-ios
+          command -v xcodegen || brew install xcodegen
+          npm ci
+      - name: Validate frontend
+        run: npm run build
+      - name: Build device archive
+        run: |
+          npm run tauri -- ios init --ci --skip-targets-install
+          npm run tauri -- ios build --target aarch64 --no-sign --archive-only --ci
+      - name: Package SideStore IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find src-tauri -type d -path '*.xcarchive/Products/Applications/*.app' -print -quit)"
+          test -n "$app"
+          /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$app/Info.plist"
+          mkdir -p Payload
+          ditto "$app" "Payload/$(basename "$app")"
+          ditto -c -k --keepParent Payload KitChat-SideStore.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KitChat-iPhone-iPad-SideStore
+          path: desktop-app/KitChat-SideStore.ipa
+          if-no-files-found: error
+          retention-days: 14

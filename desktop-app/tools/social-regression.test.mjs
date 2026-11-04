@@ -195,3 +195,31 @@ test('session and settings survive a WebView2 localStorage loss',()=>{
   assert.match(source,/isSessionRejected\(error\)[\s\S]{0,80}removeItem\("kitchat_token"\)/);
   assert.doesNotMatch(source,/\} catch \{\n\s*localStorage\.removeItem\("kitchat_token"\);\n\s*authView\(\);/);
 });
+
+test('friend writes require a matching relationship in the refreshed server state', async () => {
+  const source = fs.readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('async function changeFriend(');
+  const end = source.indexOf('async function communityUpload(', start);
+  const calls = [];
+  let snapshot = [];
+  const context = vm.createContext({
+    currentUser: { id: 10 },
+    community: async (query, data) => {
+      calls.push(data ? data.mode : 'refresh');
+      return data ? { ok: true } : { people: snapshot };
+    },
+  });
+  vm.runInContext(ts.transpile(source.slice(start, end)), context);
+  const changeFriend = context.changeFriend;
+
+  await assert.rejects(changeFriend(11, 'add'), /не подтвердил/);
+  assert.deepEqual(calls, ['add', 'refresh']);
+  snapshot = [{ id: 11, friend_status: 0, sent_by_me: true }];
+  await changeFriend(11, 'add');
+  snapshot = [{ id: 11, friend_status: 1, sent_by_me: false }];
+  await changeFriend(11, 'accept');
+  await assert.rejects(changeFriend(11, 'reject'), /не подтвердил/);
+  snapshot = [];
+  await changeFriend(11, 'reject');
+  await assert.rejects(changeFriend(10, 'add'), /другого пользователя/);
+});

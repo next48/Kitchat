@@ -1,0 +1,528 @@
+.mobile-chat-bar, .mobile-members-bar { display: none; }
+
+body.platform-mobile .kc-window-controls,
+body.platform-mobile .kc-titlebar-search kbd,
+body.platform-mobile [data-image-download] { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  body {
+    height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  .kc-titlebar { display: none; }
+  .auth-screen { display: block; padding: 16px; overflow: auto; }
+  .auth-brand { display: none; }
+  .auth-card { margin: 0 auto; padding: 20px; }
+
+  .app-shell, .app-shell.focus-mode {
+    grid-template: auto minmax(0, 1fr) / minmax(0, 1fr);
+    padding: 0;
+    gap: 0;
+    background: var(--surface-solid);
+  }
+  .app-shell > :is(.rail, .channels, .chat, .members) { display: none; }
+  .app-shell[data-pane="channels"] { grid-template-columns: 64px minmax(0, 1fr); }
+  .app-shell[data-pane="channels"] > .rail {
+    display: flex;
+    grid-row: 1 / -1;
+    padding-block: 12px;
+    background: var(--bg);
+  }
+  .app-shell[data-pane="channels"] > .channels,
+  .app-shell[data-pane="chat"] > .chat,
+  .app-shell[data-pane="members"] > .members {
+    display: flex;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    opacity: 1;
+    pointer-events: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app-shell[data-pane="channels"] > .channels {
+    grid-row: 1 / -1;
+    grid-column: 2;
+    border-start-start-radius: 18px;
+  }
+
+  .app-shell[data-pane="chat"] > .mobile-chat-bar,
+  .app-shell[data-pane="members"] > .mobile-members-bar {
+    grid-row: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 54px;
+    padding-inline: 6px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-solid);
+  }
+  :is(.mobile-chat-bar, .mobile-members-bar) button {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+  }
+  .mobile-back .ic { transform: rotate(180deg); }
+  .mobile-chat-title { flex: 1; min-width: 0; }
+  .mobile-chat-title b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat > header, .dm-header, .members > header { display: none; }
+  .app-shell:has(.call-screen) .mobile-chat-title { visibility: hidden; }
+  .chat .call-screen { min-width: 0; }
+  .call-controls, .call-controls-group { flex-wrap: wrap; gap: 4px; }
+  .call-controls button { width: 44px; height: 44px; }
+  .call-controls { padding: 6px; }
+  .embedded-call-header { height: auto; min-height: 44px; padding: 6px 12px; }
+
+  .app-shell .channel, .app-shell .dm-thread { min-height: 48px; }
+  .channels .profile { gap: 4px; }
+  .channels .profile #logout { display: none; }
+  .channels .profile button { width: 40px; height: 44px; }
+  .messages, .dm-messages { padding-top: 8px; }
+  .messages article, .dm-messages article { gap: 8px; padding-inline: 10px; }
+  .messages article > .avatar, .dm-messages article > .avatar { width: 32px; height: 32px; }
+  .messages article header, .dm-messages article header { flex-wrap: wrap; gap: 2px 6px; overflow-wrap: anywhere; }
+  .welcome { padding: 28px 16px; overflow-wrap: anywhere; }
+  .welcome h1 { font-size: 21px; }
+  .chat-file, .chat-audio { max-width: 100%; }
+  .composer { padding: 4px 8px 8px; }
+  .composer textarea { min-width: 0; font-size: 16px; }
+  .composer-box > button { width: 32px; }
+  .composer .send { width: 44px; }
+  input, select, textarea { font-size: 16px; }
+  .settings-layout { display: flex; flex-direction: column; }
+  .settings-sidebar { flex: none; max-height: 32dvh; overflow: auto; }
+  .settings-pages { flex: 1; min-height: 0; padding: 16px; }
+  .device-grid, .device-test, .range-grid { grid-template-columns: minmax(0, 1fr); }
+  .modal-card { max-height: calc(100dvh - 32px); }
+  .settings-layer .modal-card { height: calc(100dvh - 32px); }
+}
+
+@media (761px <= width <= 1220px) and (pointer: coarse) {
+  body {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .app-shell { --sidebar-w: 250px; }
+}
+
+.mobile-channel-search, .mobile-call-back { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .app-shell[data-pane="channels"] { grid-template-columns: 66px minmax(0, 1fr); }
+  .app-shell > .rail :is(.home, .server, .add) { width: 46px; height: 46px; }
+  .app-shell > .rail .server { border-radius: 50%; }
+  .app-shell > .rail .server.active { border-radius: 15px; }
+  .channels > header { padding: 12px; }
+  .channels > header > div { min-width: 0; }
+  .channels > header b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-channel-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    min-height: 44px;
+    margin: 0 10px 8px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: var(--surface-3);
+    color: var(--text-2);
+    text-align: left;
+  }
+  .mobile-channel-search .ic { flex: none; width: 18px; height: 18px; }
+  .channel-scroll { padding-inline: 8px; }
+  .channel[data-channel] small { display: none; }
+  .channel.active, .dm-thread.active { background: var(--accent-soft); color: var(--text); }
+  .channels .profile { min-height: 58px; padding-inline: 10px; }
+  .channels .profile :is(#selfMute, #selfDeafen) { display: none; }
+  .channels .profile #userSettings { margin-left: auto; }
+  .dm-thread b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .mobile-chat-bar { position: relative; }
+  .mobile-chat-title b { font-size: 16px; }
+  .composer-row { align-items: center; gap: 6px; }
+  .composer-box { border-radius: 24px; }
+  .composer .send { height: 44px; border-radius: 50%; }
+  .messages .message-body, .dm-messages .message-body { min-width: 0; }
+  .friend-row-actions { opacity: 1; }
+  .friends-filter-search { width: 100%; }
+  .friends-tabs { width: 100%; }
+  .friends-tabs button { min-height: 40px; }
+  .chat:has(.friends-panel) { overflow-y: auto; }
+
+  .app-shell[data-pane="chat"]:has(.call-screen) > .mobile-chat-bar { display: none; }
+  .app-shell[data-pane="chat"]:has(.call-screen) > .chat { grid-row: 1 / -1; }
+  .embedded-call-header .mobile-call-back {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    height: 44px;
+  }
+  .embedded-call-header .call-heading { flex: 1; min-width: 0; }
+  .embedded-call-header .call-heading b {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .call-stage { overflow: auto; padding: 8px; --tile-w: min(320px, 100%); }
+  .call-stage .video-tile, .call-stage .p2p-screen-tile { max-width: 100%; }
+  .call-controls { background: var(--surface-solid); border-top: 1px solid var(--line); }
+  .call-controls-group { display: contents; }
+  .call-controls button { border-radius: 50%; }
+  .call-controls button.danger { width: 44px; border-radius: 50%; }
+  body.platform-mobile :is(#callShare, #callFullscreen) { display: none; }
+}
+
+.embedded-call-header > .call-heading { display: grid; flex: 1; min-width: 0; }
+
+.mobile-home-nav, .mobile-profile { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  body { height: var(--mobile-viewport-height, 100dvh); }
+  body.mobile-keyboard-open { padding-bottom: 0; }
+  body[data-theme="standard"] {
+    --bg: #1a1b1e;
+    --surface-solid: #242529;
+    --surface-2: #292b30;
+    --surface-3: #303238;
+    --accent: #5865f2;
+    --accent-2: #5865f2;
+    background: var(--bg);
+    font-family: system-ui, sans-serif;
+  }
+
+  .app-shell[data-pane="channels"], .app-shell[data-pane="profile"] {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .app-shell[data-pane="channels"] > :is(.rail, .channels) { grid-row: 1; }
+  .app-shell[data-pane="channels"] > .channels { background: var(--surface-solid); }
+  .app-shell[data-pane="channels"] > .mobile-home-nav,
+  .app-shell[data-pane="profile"] > .mobile-home-nav {
+    grid-area: 2 / 1 / 3 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-home-nav button {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 2px;
+    min-height: 56px;
+    color: var(--text-2);
+    font-size: 11px;
+    font-weight: 650;
+  }
+  .mobile-home-nav .ic { width: 21px; height: 21px; }
+  [data-pane="channels"] .mobile-home-nav [aria-current],
+  .mobile-home-nav [data-current] { color: var(--text); }
+  .app-shell[data-pane="profile"] > .mobile-profile {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: auto;
+    padding: 16px;
+  }
+  .mobile-profile h1 { margin: 0; font-size: 24px; }
+  .mobile-profile-identity {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-profile-identity .avatar { width: 52px; height: 52px; }
+  .mobile-profile-identity > div:last-child { display: grid; min-width: 0; overflow-wrap: anywhere; }
+  .mobile-profile-identity small { color: var(--text-2); }
+  .mobile-profile button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    text-align: left;
+  }
+  .mobile-profile button span { flex: 1; }
+  .mobile-profile button .ic { width: 20px; height: 20px; }
+  .mobile-profile button:active, .mobile-home-nav button:active { background: var(--press); }
+  .chat .composer { background: var(--surface-solid); }
+  .chat .composer .send { background: var(--accent); box-shadow: none; }
+  .chat .welcome > span { background: var(--surface-3); box-shadow: none; color: var(--text); }
+  .social-heading .eyebrow, .social-heading p, .social-footer { display: none; }
+  .friends-home, .friends-panel { min-width: 0; }
+  .friends-toolbar { padding: 8px; }
+  .friends-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .friend-row-actions button { min-height: 44px; }
+  .modal-card { max-height: calc(var(--mobile-viewport-height, 100dvh) - 24px); }
+  .settings-layer .modal-card {
+    width: 100%;
+    height: var(--mobile-viewport-height, 100dvh);
+    border-radius: 0;
+  }
+  .settings-layer { padding: 0; }
+  .app-shell[data-pane="chat"] > .chat,
+  .app-shell[data-pane="members"] > .members,
+  .app-shell[data-pane="profile"] > .mobile-profile { animation: mobile-screen-in 160ms ease-out; }
+  @keyframes mobile-screen-in {
+    from { opacity: .7; transform: translateX(8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+}
+
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .app-shell[data-pane] > :is(.chat, .members, .mobile-profile) { animation: none; }
+}
+
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .auth-screen { overflow-x: hidden; background: var(--surface-solid); }
+  .auth-glow { display: none; }
+  .auth-card { border: 0; background: transparent; box-shadow: none; }
+  .auth-card .primary { background: var(--accent); box-shadow: none; }
+  .auth-card input { font-size: 16px; }
+}
+
+.mobile-servers-empty { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .app-shell[data-pane="servers"] { grid-template-rows: minmax(0, 1fr) auto; }
+  .app-shell[data-pane="servers"] > .mobile-home-nav {
+    grid-area: 2 / 1 / 3 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+  .app-shell[data-pane="servers"] > .mobile-servers-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    min-width: 0;
+    padding: 16px;
+  }
+  .mobile-servers-empty h1, .mobile-servers-empty p { margin: 0; }
+  .mobile-servers-empty h1 { font-size: 24px; }
+  .mobile-servers-empty p { color: var(--text-2); }
+  .mobile-servers-empty button { min-height: 44px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: white; }
+  .mobile-home-nav [aria-current="page"] { color: var(--text); }
+  .mobile-profile button { justify-content: flex-start; }
+  .mobile-profile button span { text-align: left; }
+}
+
+.mobile-add-friend, .mobile-channel-media { display: none; }
+.friend-picker-status:empty { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  body[data-theme="standard"] {
+    --bg: #111214;
+    --surface-solid: #1b1c20;
+    --surface-2: #242529;
+    --surface-3: #2b2d31;
+  }
+  .app-shell[data-pane="channels"] { grid-template-columns: 64px minmax(0, 1fr); background: var(--bg); }
+  .app-shell[data-pane="channels"] > .channels { border-radius: 22px 0 0; }
+  .channels > header { min-height: 58px; border-bottom: 0; padding-inline: 15px; }
+  .channels > header small { display: none; }
+  .channels > header b { font-size: 21px; font-weight: 750; }
+  .mobile-channel-search { margin-inline: 12px; min-height: 42px; border-radius: 12px; }
+  .channel-scroll .section { margin-top: 12px; padding-inline: 8px; font-size: 12px; letter-spacing: .015em; }
+  .channel { font-size: 15px; gap: 10px; border-radius: 10px; }
+  .channel.active { background: var(--surface-3); }
+  .channels .profile { margin: 6px 8px; border: 0; border-radius: 16px; }
+  .channels .profile b { font-size: 14px; }
+  .mobile-add-friend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    flex: none;
+    margin: 0 12px 6px;
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--surface-3);
+    font-weight: 650;
+    text-align: left;
+  }
+  .mobile-add-friend .ic { width: 20px; height: 20px; }
+
+  .mobile-chat-bar { min-height: 56px; }
+  .chat .composer { padding: 6px 12px 10px; }
+  .chat .composer-box { border: 0; background: var(--surface-2); }
+  .chat .composer-box > button { width: 44px; }
+  .messages article, .dm-messages article { gap: 10px; padding-inline: 12px; }
+  .messages article > .avatar, .dm-messages article > .avatar { width: 36px; height: 36px; }
+  .message-body p { font-size: 15px; }
+
+  .mobile-voice-preview {
+    position: fixed;
+    inset: auto 0 0;
+    width: 100%;
+    max-width: none;
+    max-height: min(65dvh, 560px);
+    margin: 0;
+    padding: 14px 14px max(16px, env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 24px 24px 0 0;
+    background: var(--surface-solid);
+    color: var(--text);
+  }
+  .mobile-voice-preview::backdrop { background: #0009; }
+  .mobile-voice-preview header { display: flex; align-items: center; gap: 12px; }
+  .mobile-voice-preview h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+  .mobile-voice-preview header button { width: 44px; height: 44px; flex: none; background: var(--surface-3); border-radius: 12px; }
+  .mobile-voice-people { padding: 28px 4px; text-align: center; color: var(--text-2); }
+  .mobile-voice-people .voice-presence { margin: 0; text-align: left; }
+  .mobile-voice-preview [data-voice-join] { width: 100%; min-height: 52px; padding: 8px; border-radius: 14px; background: #198542; color: white; font-weight: 700; }
+  .chat .call-screen { background: var(--bg); }
+  .call-controls { margin: 8px 12px 12px; padding: 9px; border: 1px solid var(--line); border-radius: 20px; }
+  .call-controls button { width: 46px; height: 46px; }
+
+  .app-shell[data-pane="members"] > .mobile-members-bar { flex-wrap: wrap; padding-inline: 10px; }
+  .mobile-members-bar .mobile-chat-title small { display: block; color: var(--text-2); }
+  .mobile-info-tabs { display: flex; flex: 0 0 100%; gap: 16px; }
+  .mobile-info-tabs button { width: auto; padding-inline: 8px; color: var(--text-2); }
+  .mobile-info-tabs button[aria-pressed="true"] { color: var(--accent-text); border-bottom: 2px solid var(--accent); }
+  .app-shell[data-pane="members"] > .members { padding-inline: 12px; }
+  .app-shell[data-pane="members"] > .members header { display: flex; min-height: 48px; }
+  .members .member { min-height: 52px; background: var(--surface-2); border-radius: 12px; margin-block: 2px; }
+  .app-shell[data-pane="members"] > .members.mobile-media-selected { display: none; }
+  .app-shell[data-pane="members"] > .mobile-channel-media:not([hidden]) { display: block; grid-row: 2; overflow: auto; padding: 12px; }
+
+  .friend-picker-layer { align-items: end; padding: 0; }
+  .friend-picker-layer .friends-card { width: 100%; border-radius: 22px 22px 0 0; padding: 18px 14px max(16px, env(safe-area-inset-bottom)); }
+  .friend-picker-layer .friend-row { gap: 8px; padding-inline: 4px; }
+  .friend-picker-layer .friend-row button { min-height: 44px; }
+  .friend-picker-status { color: var(--text); overflow-wrap: anywhere; }
+}
+
+.mobile-invite-label { display: none; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .members #membersFriends { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding-inline: 10px; border-radius: 10px; background: var(--surface-3); }
+  .mobile-invite-label { display: inline; font-size: 12px; }
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .phone-shell[data-pane="channels"] { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  body[data-theme="standard"] {
+    --bg: #111216;
+    --surface-solid: #1b1d24;
+    --surface-2: #232630;
+    --surface-3: #292c36;
+    --text: #f2f3f7;
+    --text-2: #adb0bd;
+    --text-3: #9498a6;
+    --success: #23a55a;
+    --danger: #da4553;
+  }
+  .phone-icon-button { display: grid; place-items: center; width: 44px; height: 44px; flex: none; }
+  .phone-icon-button .ic { width: 21px; height: 21px; }
+  .mobile-chat-bar [data-mobile-pane="channels"] .ic { transform: rotate(180deg); }
+  .mobile-chat-title small { color: var(--text-3); font-size: 12px; }
+  .chat .social-hub { padding: 0; }
+  .chat .social-heading { padding: 8px 12px; }
+  .chat .social-heading h1 { display: none; }
+  .chat .friends-panel { border: 0; border-radius: 0; background: transparent; }
+  .chat .friends-tabs { background: transparent; padding: 0; scrollbar-width: none; }
+  .chat .friends-tabs button { flex: none; background: var(--surface-3); }
+  .chat .home-friend-row { min-height: 60px; border-radius: 12px; }
+  .phone-search-layer { align-items: start; padding: env(safe-area-inset-top) 0 0; background: var(--surface-solid); }
+  .phone-search-layer .kc-palette {
+    position: relative;
+    width: 100%;
+    height: var(--mobile-viewport-height, 100dvh);
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface-solid);
+  }
+  .phone-search-layer .kc-palette-input { margin-right: 68px; }
+  .phone-search-layer .phone-search-close { position: absolute; top: 0; right: 4px; min-height: 44px; padding: 0 8px; color: var(--accent-text); }
+  .phone-search-layer :is(kbd, .kc-palette-hint) { display: none; }
+  .phone-search-layer .kc-palette-list { max-height: calc(var(--mobile-viewport-height, 100dvh) - 62px); }
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+}
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .phone-shell[data-pane="chat"] > .chat { background: var(--surface-solid); }
+}
+
+#phoneVoiceHost {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg);
+}
+#phoneVoiceHost[hidden] { display: none; }
+#phoneVoiceHost > .call-screen { flex: 1; min-width: 0; min-height: 0; background: var(--bg); }
+#phoneVoiceHost .embedded-call-header { min-height: 56px; gap: 6px; padding: 6px 10px; }
+#phoneVoiceHost .call-heading b { font-size: 17px; }
+#phoneVoiceHost .call-heading small { font-size: 12px; }
+#phoneVoiceHost .call-header-actions { flex: none; }
+#phoneVoiceHost .call-header-actions button span { display: none; }
+#phoneVoiceHost .call-stage { align-content: center; }
+#phoneVoiceHost .call-controls { justify-content: space-evenly; }
+
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
+  .phone-settings .modal-card { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .phone-settings .settings-sidebar { display: none; }
+  .phone-settings .settings-layout { min-height: 0; }
+  .phone-settings .settings-pages { padding: 16px; }
+  .phone-settings .phone-settings-back { min-height: 44px; flex: none; color: var(--accent-text); }
+  .phone-settings-index .settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    max-height: none;
+    overflow: auto;
+    background: transparent;
+    border: 0;
+    padding: 12px 16px;
+  }
+  .phone-settings-index .settings-sidebar button {
+    min-height: 52px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+  }
+  .phone-settings-index .settings-sidebar button.active { background: transparent; }
+  .phone-settings-index :is(.settings-pages, .modal-actions, .phone-settings-back) { display: none; }
+}
+
+#phoneVoiceReturn {
+  position: fixed;
+  top: max(62px, calc(env(safe-area-inset-top) + 60px));
+  right: 12px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--text);
+}
+#phoneVoiceReturn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#phoneVoiceReturn :is(time, .ic) { flex: none; }
+#phoneVoiceReturn .ic { width: 18px; height: 18px; }
+body:has(.phone-shell[data-pane="channels"] #voiceDockApp) #phoneVoiceReturn { display: none; }

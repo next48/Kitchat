@@ -23,6 +23,9 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
+    proxy: {
+      "/api": { target: "https://oliverkitchen.ru", changeOrigin: true },
+    },
     host: host || false,
     hmr: host
       ? {
@@ -37,3 +40,4 @@ export default defineConfig(async () => ({
     },
   },
 }));
+

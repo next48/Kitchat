@@ -1,0 +1,73 @@
+@media (max-width:760px), (pointer: coarse) and (max-width:1366px) {
+  @keyframes phone-enter { from { opacity:.3; transform:translateX(24px); } to { opacity:1; transform:none; } }
+  @keyframes phone-sheet { from { transform:translateY(100%); } to { transform:translateY(0); } }
+  .phone-shell[data-pane=chat] > .chat { animation:phone-enter .24s ease-out; }
+  .phone-shell[data-pane=channels] > .mobile-home { animation:none; }
+  .modal-layer { align-items:flex-end; padding:0; background:#0009; }
+  .modal-layer .modal-card { width:100%; max-height:92dvh; border-radius:24px 24px 0 0; padding:20px 18px max(20px,env(safe-area-inset-bottom)); background:#232327; animation:phone-sheet .28s cubic-bezier(.22,1,.36,1); }
+  .modal-layer.is-closing .modal-card { transform:translateY(100%); transition:transform .18s ease-in; }
+  .modal-titlebar { position:relative; padding-top:12px; touch-action:none; }
+  .modal-titlebar::before { content:""; position:absolute; width:34px; height:4px; border-radius:4px; background:#56565e; top:-8px; left:calc(50% - 17px); }
+  .phone-settings .settings-sidebar { gap:0; }
+  .phone-settings-index .settings-sidebar button { min-height:56px; border:0; border-bottom:1px solid #ffffff0b; background:#2b2b30; border-radius:0; padding:0 16px; font-size:16px; text-align:left; }
+  .phone-settings-index .settings-sidebar button:first-of-type { border-radius:14px 14px 0 0; }
+  .phone-settings-index .settings-sidebar button:last-child { border-radius:0 0 14px 14px; }
+  .phone-shell[data-pane=members] { padding-top:28px; background:#0008; }
+  .phone-shell[data-pane=members] > .mobile-members-bar { border-radius:22px 22px 0 0; padding-top:18px; min-height:100px; touch-action:none; animation:phone-sheet .28s ease-out; }
+  .phone-shell[data-pane=members] > .members { animation:phone-sheet .28s ease-out; padding:12px; background:#232327; }
+  .phone-shell .members .member { min-height:64px; margin:0; background:#2c2c31; border-radius:12px; padding:10px 12px; }
+  .phone-shell .member-group-title { padding:20px 8px 10px; font-size:14px; color:#aaaab4; }
+  .phone-notifications :is(.social-heading,.friends-toolbar,.social-footer,.friends-filter-search) { display:none; }
+  .phone-notifications .home-friend-row { display:grid; grid-template-columns:44px minmax(0,1fr); gap:8px 12px; padding:18px 4px; }
+  .phone-notifications .friend-row-actions { grid-column:2; display:flex; width:100%; opacity:1; }
+  .phone-notifications .friend-row-actions button { flex:1; min-height:42px; padding:0 10px; border-radius:10px; background:#303036; }
+  .phone-notifications .friend-row-actions .friend-accept { background:#5865f2; color:white; }
+  .phone-notifications .friend-identity small span { display:none; }
+  #phoneVoiceHost .mobile-call-back { display:grid; place-items:center; width:44px; height:44px; flex:none; }
+  #phoneVoiceHost :is(#callShare,#callFullscreen,.stream-fps-control,[title="Свернуть в мини-плеер"],[title="Плеер поверх всех окон"],[data-tile-fullscreen]) { display:none!important; }
+  #phoneVoiceHost .call-controls { flex-wrap:nowrap; justify-content:space-evenly; padding:14px 10px; }
+  #phoneVoiceHost .call-controls button { width:48px; height:48px; }
+  #phoneVoiceHost .video-tile { min-height:220px; }
+  .auth-screen { background:#1a1a1e; padding:32px 24px; }
+  .auth-card { padding:24px 0; border:0; background:transparent; box-shadow:none; width:100%; max-width:420px; }
+  .auth-card h1 { font-size:28px; letter-spacing:-.6px; }
+  .auth-card input { min-height:52px; border-radius:12px; background:#29292e; border:1px solid #38383f; font-size:16px; }
+  .auth-card button { min-height:48px; border-radius:12px; }
+}
+@media (prefers-reduced-motion:reduce) { .phone-shell *, .modal-layer .modal-card { animation:none!important; transition:none!important; } }
+
+@media (max-width:760px), (pointer: coarse) and (max-width:1366px) {
+  .phone-shell .channel-scroll.view-enter { animation:none; }
+  .phone-shell .social-add-button { background:#303036; color:#e4e4ea; border:1px solid #414148; box-shadow:none; }
+  .phone-shell .friends-tabs { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1fr) minmax(0,1.5fr); gap:6px; width:100%; overflow:visible; }
+  .phone-shell .friends-tabs [data-friends-filter=incoming] { display:none; }
+  .phone-shell .friends-tabs button { min-width:0; padding:0 6px; min-height:42px; font-size:12px; display:flex; align-items:center; justify-content:center; gap:4px; }
+  .phone-shell .friends-tabs button span { margin:0; padding:0 3px; font-size:11px; }
+  .phone-shell .friends-tabs button[aria-selected=true] { background:#42424b; color:white; }
+  .phone-shell .social-hub { padding:12px; }
+  .phone-shell .friends-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:12px; padding:8px 0; }
+  .phone-shell .friends-filter-search { width:100%; }
+  .phone-shell .social-heading { padding:0 0 8px; }
+  .notification-sheet .modal-card { height:min(82dvh,720px); display:flex; flex-direction:column; }
+  .notification-sheet-list { overflow-y:auto; flex:1; min-height:0; }
+  .notification-sheet .home-friend-row { display:grid; grid-template-columns:44px minmax(0,1fr); gap:8px 12px; padding:18px 0; border:0; background:transparent; }
+  .notification-sheet .friend-row-actions { grid-column:2; display:flex; gap:8px; opacity:1; }
+  .notification-sheet .friend-row-actions button { flex:1; min-height:44px; padding:0 8px; background:#33333a; border-radius:10px; }
+  .notification-sheet .friend-row-actions .friend-accept { background:#5865f2; color:white; }
+  .notification-sheet .friend-identity small span { display:none; }
+}
+
+@media (max-width:760px), (pointer: coarse) and (max-width:1366px) {
+ .mobile-home .phone-server-heading #serverMenuToggle { margin:0; padding:0 12px; width:100%; min-height:44px; }
+ .phone-shell .mobile-members-bar { position:relative; }
+ .phone-shell .mobile-members-bar::before { content:""; position:absolute; top:6px; left:calc(50% - 18px); width:36px; height:4px; border-radius:4px; background:#5a5a62; }
+ .phone-shell .mobile-members-bar .mobile-back .ic { transform:rotate(90deg); }
+ .phone-shell .members-list { display:block; padding:0 0 12px; }
+ .phone-shell .members .member { min-height:60px; height:auto; margin:2px 0; padding:10px 12px; }
+ .phone-shell .member-group-title { margin:0; padding:16px 8px 8px; line-height:20px; }
+ .phone-shell .mobile-info-tabs { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+ .phone-shell .mobile-info-tabs button { width:100%; border-radius:0; min-height:44px; border-bottom:2px solid transparent; transition:color .16s,border-color .16s; }
+ .phone-shell[data-pane=members] > .members, .phone-shell[data-pane=members] > .mobile-members-bar { animation:none; transition:transform .2s ease-out; }
+ .phone-shell[data-pane=members] > .mobile-channel-media:not([hidden]) { display:block; min-height:0; overflow:auto; grid-row:2; padding:16px; background:#232327; }
+ .sheet-dragging { animation:none!important; transition:none!important; will-change:transform; }
+}

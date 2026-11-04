@@ -1,4 +1,6 @@
+#[cfg(desktop)]
 mod native_stream;
+#[cfg(desktop)]
 mod process_audio;
 
 #[tauri::command]
@@ -411,6 +413,7 @@ fn capture_sources() -> Result<Vec<CaptureSource>, String> { Err("Нативны
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn capture_frame(_kind: String, _id: usize, _width: u32, _height: u32, _quality: u8) -> Result<String, String> { Err("Нативный захват пока доступен только на Windows".into()) }
 
+#[cfg(desktop)]
 #[tauri::command]
 fn tray_action(app: tauri::AppHandle, action: String) {
     use tauri::{Emitter, Manager};
@@ -441,7 +444,12 @@ fn tray_action(app: tauri::AppHandle, action: String) {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[tauri::command]
+fn is_mobile_app() -> bool {
+    cfg!(mobile)
+}
+
+#[cfg(desktop)]
 pub fn run() {
     let launched_minimized = std::env::args().any(|argument| argument == "--minimized");
     let mut builder =
@@ -583,6 +591,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_system_audio::init())
         .invoke_handler(tauri::generate_handler![
+            is_mobile_app,
             greet,
             download_attachment,
             detect_game_activity,
@@ -617,4 +626,21 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![
+            is_mobile_app,
+            direct_messages_request,
+            settings_backup_load,
+            settings_backup_save
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running Kitchat");
 }
