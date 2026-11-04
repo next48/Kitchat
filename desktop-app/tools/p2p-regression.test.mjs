@@ -180,14 +180,14 @@ test('only the local camera preview is mirrored and the preference defaults on',
 test('camera permission cancelled: busy guard resets for next attempt', async () => {
   let requests=0;
   const toggle=evaluate(section('  let cameraBusy', '  const requestPeerRenegotiation')+'\ntoggleCamera;', {
-    leaving:false,camera:false,requestMediaAccess:async()=>{requests++; return false;},
+    phoneLayout:{matches:false},leaving:false,camera:false,requestMediaAccess:async()=>{requests++; return false;},
   });
   await Promise.all([toggle(),toggle()]); assert.equal(requests,1);
   await toggle(); assert.equal(requests,2);
 });
 test('capture finishing after leaving closes acquired tracks', async () => {
   let resolveCapture, stopped=0;
-  const context={leaving:false,camera:false,cameraStream:null,requestMediaAccess:async()=>true,
+  const context={phoneLayout:{matches:false},leaving:false,camera:false,cameraStream:null,requestMediaAccess:async()=>true,
     lowResourceMode:()=>true,localStorage:{getItem:()=>null}, navigator:{mediaDevices:{getUserMedia:()=>new Promise(resolve=>resolveCapture=resolve)}}};
   const toggle=evaluate(section('  let cameraBusy', '  const requestPeerRenegotiation')+'\ntoggleCamera;', context);
   const pending=toggle(); await new Promise(resolve=>setImmediate(resolve));

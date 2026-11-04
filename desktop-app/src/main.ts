@@ -6,6 +6,11 @@ import "./mobile.css";
 import "./mobile-home.css";
 import "./mobile-discord.css";
 import "./mobile-motion.css";
+import { installMobileCallControls } from "./mobile-call-controls";
+import { NavigationCache } from "./navigation-cache";
+const navigationCache = new NavigationCache<CommunityState>();
+const directNavigationCache = new NavigationCache<{threads?: DirectThread[]}>();
+let navigationWarmedAt = 0;
 import { installMobileSheets } from "./mobile-sheets";
 installMobileSheets();
 import { mobileAccount, mobileConversation, mobileChannelGroup, mobileChatHeader, mobileHomeMarkup, mobileInbox, mobileServerScreen, phoneLayout, trackMobileKeyboard } from "./mobile-ui";
@@ -850,6 +855,7 @@ async function community(
   data?: Record<string, string | number>,
   signal?: AbortSignal,
 ) {
+  if (data && !String(data.action || "").startsWith("voice")) navigationCache.clear();
   const params = new URLSearchParams(
     Object.entries(query).map(([k, v]) => [k, String(v)]),
   );
@@ -904,6 +910,7 @@ async function markDesktopOffline() {
   finally { window.clearTimeout(timeout); }
 }
 async function directMessages(query: Record<string, string | number> = {}, data?: Record<string, string | number>) {
+  if (data) directNavigationCache.clear();
   const stringQuery = Object.fromEntries(Object.entries(query).map(([key, value]) => [key, String(value)]));
   const stringData = data ? Object.fromEntries(Object.entries(data).map(([key, value]) => [key, String(value)])) : undefined;
   let result: { ok: boolean; error?: string; threads?: DirectThread[]; messages?: DirectMessage[]; message?: DirectMessage };
@@ -1919,6 +1926,7 @@ function openPhoneVoiceHost() {
     host.id = "phoneVoiceHost";
     host.setAttribute("aria-label", "Голосовой канал");
     document.body.append(host);
+    installMobileCallControls(host);
     host.addEventListener("click", (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".mobile-call-back")) return;
       host!.hidden = true;
@@ -2075,7 +2083,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   if (!app.querySelector(".app-shell")) app.innerHTML = loadingView();
   let state: CommunityState;
   try {
-    state = await community({ server_id: serverId, channel: channelSlug });
+    state = await navigationCache.load(`${token()}|${serverId}|${channelSlug}`, () => community({ server_id: serverId, channel: channelSlug }));
     // desktop_auth.php may return a reduced user object without global_role.
     // community.php is authoritative for global permissions, so keep currentUser
     // in sync before starting private game-presence polling or opening profiles.
@@ -2104,7 +2112,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   const active = forceHome ? null : state.server;
   let dmState: DirectState = { threads: [] };
   try {
-      const listing = await directMessages({ action: "list" });
+      const listing = active ? { threads: [] } : await directNavigationCache.load(token(), () => directMessages({ action: "list" }));
       dmState.threads = listing.threads || [];
     if (!active) {
       if (homePane.kind === "dm" && homePane.userId) {
@@ -2127,6 +2135,18 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     return;
   }
   const sortedServers = orderedServers(state.servers);
+  if (phoneLayout.matches && Date.now() - navigationWarmedAt > 60_000) {
+    navigationWarmedAt = Date.now();
+    const account = token();
+    window.setTimeout(() => {
+      if (account !== token()) return;
+      void directNavigationCache.load(account, () => directMessages({action: "list"})).catch(() => {});
+      for (const server of sortedServers.slice(0, 3)) {
+        if (server.id === serverId) continue;
+        void navigationCache.load(account + "|" + server.id + "|", () => community({server_id:server.id, channel:""})).catch(() => {});
+      }
+    }, 1500);
+  }
   const serverButtons = sortedServers
     .map(
       (s) =>
@@ -5172,6 +5192,7 @@ async function callViewP2P(
     renderUsers(rouletteUsers);
     void publishPresence();
   };
+  let cameraFacing: "user" | "environment" = "user";
   let cameraBusy = false;
   const toggleCamera = async () => {
     if (cameraBusy || leaving) return;
@@ -5185,7 +5206,8 @@ async function callViewP2P(
     try {
       cameraStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          deviceId: localStorage.getItem("kitchat_camera") || undefined,
+          deviceId: phoneLayout.matches ? undefined : localStorage.getItem("kitchat_camera") || undefined,
+          facingMode: phoneLayout.matches ? { ideal: cameraFacing } : undefined,
           width: { ideal: lowResourceMode() ? 640 : 1280, max: lowResourceMode() ? 640 : 1280 },
           height: { ideal: lowResourceMode() ? 360 : 720, max: lowResourceMode() ? 360 : 720 },
           frameRate: { ideal: lowResourceMode() ? 15 : 30, max: lowResourceMode() ? 15 : 30 },
@@ -6469,6 +6491,21 @@ async function callViewP2P(
     document.querySelectorAll<HTMLMediaElement>(`[data-voice-user="${userId}"]`).forEach((element) => setRemoteAudioVolume(element, volume));
   };
   document.querySelector<HTMLButtonElement>("#callMic")!.onclick = () => void toggleMute();
+  if (phoneLayout.matches) {
+    const flip = document.createElement("button");
+    flip.type = "button"; flip.className = "phone-camera-flip";
+    flip.setAttribute("aria-label", "Переключить камеру"); flip.textContent = "↻";
+    host.querySelector(".embedded-call-header")?.append(flip);
+    flip.onclick = async () => {
+      if (cameraBusy || leaving) return;
+      flip.disabled = true;
+      try {
+        if (camera) await toggleCamera();
+        cameraFacing = cameraFacing === "user" ? "environment" : "user";
+        await toggleCamera();
+      } finally { flip.disabled = false; }
+    };
+  }
   document.querySelector<HTMLButtonElement>("#callCamera")!.onclick = () => void toggleCamera();
   document.querySelector<HTMLButtonElement>("#callShare")!.onclick = () => void toggleScreen();
   document.querySelector<HTMLButtonElement>("#callDeafen")!.onclick = () => void toggleDeafen();

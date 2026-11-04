@@ -4019,6 +4019,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-system-audio",
  "tauri-plugin-updater",
+ "tauri-plugin-voice-mobile",
  "tokio",
  "webrtc",
  "webview2-com",
@@ -6282,6 +6283,15 @@ dependencies = [
  "url",
  "windows-sys 0.60.2",
  "zip",
+]
+
+[[package]]
+name = "tauri-plugin-voice-mobile"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

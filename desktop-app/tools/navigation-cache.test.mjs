@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const code=ts.transpileModule(readFileSync(new URL('../src/navigation-cache.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {NavigationCache}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
+test('navigation joins concurrent requests',async()=>{const cache=new NavigationCache();let calls=0;const fetcher=async()=>{calls++;return {id:1};};await Promise.all([cache.load('a',fetcher),cache.load('a',fetcher)]);assert.equal(calls,1);});
+test('cached navigation renders before a pending refresh and copies state',async()=>{const cache=new NavigationCache();await cache.load('a',async()=>({items:[1]}));const result=await cache.load('a',()=>new Promise(()=>{}));result.items.push(2);assert.deepEqual((await cache.load('a',()=>new Promise(()=>{}))).items,[1]);});
+test('mutation invalidation prevents an older response restoring removed state',async()=>{const cache=new NavigationCache();let resolve;const old=cache.load('a',()=>new Promise(r=>{resolve=r}));cache.clear();resolve({id:1});await old;let calls=0;const current=await cache.load('a',async()=>{calls++;return {id:2}});assert.equal(current.id,2);assert.equal(calls,1);});
+test('accounts never share a cached navigation response',async()=>{const cache=new NavigationCache();await cache.load('account1',async()=>({id:1}));assert.equal((await cache.load('account2',async()=>({id:2}))).id,2);});

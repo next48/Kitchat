@@ -71,3 +71,45 @@
  .phone-shell[data-pane=members] > .mobile-channel-media:not([hidden]) { display:block; min-height:0; overflow:auto; grid-row:2; padding:16px; background:#232327; }
  .sheet-dragging { animation:none!important; transition:none!important; will-change:transform; }
 }
+
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+ body { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+ :is(.messages,.dm-messages) :is(p,.message-body,a), input,textarea,[contenteditable=true] { -webkit-user-select:text; user-select:text; -webkit-touch-callout:default; }
+ button,a { touch-action:manipulation; }
+ .mobile-home .phone-server-rail :is(.server.active,.home)::before { top:50%; transform:translateY(-50%); }
+ .mobile-home .phone-server-heading .server-dropdown button { display:flex; align-items:center; justify-content:flex-start; width:100%; height:auto; min-height:48px; padding:10px 12px; gap:12px; font-size:15px; line-height:22px; white-space:normal; text-align:left; }
+ .mobile-home .server-dropdown button .ic { flex:none; width:22px; height:22px; }
+ .mobile-home .server-dropdown { left:8px; right:8px; width:auto; max-height:70dvh; overflow:auto; }
+ #phoneVoiceHost .video-tile video { object-fit:contain!important; transform:none; }
+ #phoneVoiceHost .video-grid { display:flex!important; flex-direction:column; gap:12px; width:100%; height:auto!important; min-height:0; }
+ #phoneVoiceHost .video-tile { flex:none; width:100%!important; height:auto!important; min-height:0!important; aspect-ratio:4/3; }
+ #phoneVoiceHost .call-stage { display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch; overflow-y:auto; padding:12px 12px 110px; }
+ #phoneVoiceHost .p2p-screen-grid { display:flex; flex-direction:column; width:100%; gap:12px; flex:none; }
+ #phoneVoiceHost .p2p-screen-tile.stream-available { height:auto!important; min-height:260px; aspect-ratio:auto; flex:none; }
+ #phoneVoiceHost .stream-available-card { position:relative; inset:auto; padding:18px 12px; gap:10px; min-height:260px; }
+ #phoneVoiceHost .stream-available-copy span { display:none; }
+ #phoneVoiceHost .stream-watch-button { display:block; min-height:44px; flex:none; width:100%; }
+ #phoneVoiceHost .call-controls { position:absolute; bottom:env(safe-area-inset-bottom); left:0; right:0; z-index:30; }
+ #phoneVoiceHost .phone-camera-flip { width:44px; height:44px; border-radius:12px; background:#303036; color:white; font-size:28px; flex:none; }
+ #phoneVoiceHost :is(.embedded-call-header,.call-controls) { transition:opacity .22s, transform .22s; }
+ #phoneVoiceHost.phone-controls-hidden .embedded-call-header { opacity:0; pointer-events:none; transform:translateY(-12px); }
+ #phoneVoiceHost.phone-controls-hidden .call-controls { opacity:0; pointer-events:none; transform:translateY(24px); }
+ .modal-layer[data-modal-kind=server] .settings-sidebar button { min-height:48px; text-align:left; }
+}
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+ #phoneVoiceHost .embedded-call-header { flex-wrap:wrap; height:auto; }
+ #phoneVoiceHost :is(.phone-audio-route,.phone-pip) { min-width:40px; height:40px; padding:0 8px; border-radius:10px; background:#303036; color:#eee; font-size:12px; }
+ #phoneVoiceHost .phone-pip[hidden] { display:none; }
+ #phoneVoiceHost .embedded-call-header { touch-action:none; }
+ .server-dropdown #serverSettings { width:100%; min-height:48px; display:flex; align-items:center; justify-content:flex-start; gap:10px; white-space:normal; }
+}
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+ .phone-shell .mobile-home .phone-server-rail :is(.server.active,.home)::before { top:50%!important; transform:translateY(-50%)!important; }
+ .mobile-home .phone-server-heading .server-dropdown #serverSettings { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; width:100%; height:auto; min-height:48px; padding:10px 12px; gap:12px; }
+ .mobile-home .phone-server-heading .server-dropdown { border-radius:16px; padding:8px; background:#25252a; }
+ .modal-layer[data-modal-kind=server] .modal-card label { font-size:14px; }
+ .modal-layer[data-modal-kind=server] .settings-layout { display:flex; flex-direction:column; }
+ .modal-layer[data-modal-kind=server] .settings-sidebar { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; border:0; background:transparent; }
+ .modal-layer[data-modal-kind=server] .settings-sidebar button { flex:1 1 40%; min-height:44px; padding:8px 12px; border-radius:10px; background:#303036; }
+ .modal-layer[data-modal-kind=server] .settings-pages { padding:12px 0; min-width:0; }
+}

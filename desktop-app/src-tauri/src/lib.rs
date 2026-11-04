@@ -1,3 +1,10 @@
+#[tauri::command]
+fn mobile_audio_route(app: tauri::AppHandle, active: bool, speaker: Option<bool>) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "ios")]
+    { use tauri::Manager; app.state::<tauri_plugin_voice_mobile::MobileVoice<tauri::Wry>>().configure(active, speaker) }
+    #[cfg(not(target_os = "ios"))]
+    { let _ = (app, active, speaker); Err("Выбор аудиовыхода доступен в приложении iOS".into()) }
+}
 #[cfg(desktop)]
 mod native_stream;
 #[cfg(desktop)]
@@ -591,6 +598,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_system_audio::init())
         .invoke_handler(tauri::generate_handler![
+            mobile_audio_route,
             is_mobile_app,
             greet,
             download_attachment,
@@ -631,11 +639,15 @@ pub fn run() {
 #[cfg(mobile)]
 #[tauri::mobile_entry_point]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_voice_mobile::init());
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            mobile_audio_route,
             is_mobile_app,
             direct_messages_request,
             settings_backup_load,
