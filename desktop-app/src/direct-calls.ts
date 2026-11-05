@@ -44,6 +44,7 @@ export function createDirectCalls(options:{api:string;token:()=>string;user:()=>
     const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
     if(!current(c)){stream.getTracks().forEach(track=>track.stop());return null;}c.stream=stream;
     if(ios)await invoke('mobile_audio_route',{active:true,speaker:false});
+    if(!current(c)){if(ios&&!call)void invoke('mobile_audio_route',{active:false,speaker:null}).catch(()=>{});return null;}
     const iceServers:RTCIceServer[]=[{urls:'stun:stun.l.google.com:19302'}];
     try{const response=await fetch(`${options.api}/turn_credentials.php`,{headers:{Authorization:`Bearer ${c.account}`},signal:AbortSignal.timeout(5000)});const turn=await response.json();if(turn.ok&&turn.iceServer)iceServers.push(turn.iceServer);}catch{}
     if(!current(c))return null;
@@ -77,7 +78,7 @@ export function createDirectCalls(options:{api:string;token:()=>string;user:()=>
     const result=await request({peer_id:String(c.peer.id),after_id:String(c.after)},undefined,c.account);
     if(!current(c))return;c.after=result.last_id||c.after;
     for(const envelope of result.signals||[]){
-      const s=envelope.signal;if(s.call_id&&s.call_id!==c.id)continue;
+      const s=envelope.signal;if(s.call_id!==c.id)continue;
       if(s.kind==='ice'&&s.candidate){if(c.pc?.remoteDescription)await c.pc.addIceCandidate(s.candidate);else c.ice.push(s.candidate);}
       if(s.kind==='answer'&&s.description&&c.pc&&!c.incoming&&!c.pc.remoteDescription){await remote(c,s.description);render(c,'Соединяем…');}
       if(['decline','hangup','busy'].includes(s.kind)){await end(false,s.kind==='busy'?'Собеседник занят':s.kind==='decline'?'Звонок отклонён':'');return;}

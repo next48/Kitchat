@@ -12,7 +12,7 @@ export function installMobileLongPress() {
     const pending = {element,pointer:event.pointerId,x:event.clientX,y:event.clientY,timer:0};
     pending.timer = window.setTimeout(() => {
       if (hold !== pending || !element.isConnected) return;
-      consumed = {element,until:performance.now()+1500};
+      consumed = {element,until:Infinity};
       element.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:pending.x,clientY:pending.y}));
       cancel();
     },480);
@@ -21,8 +21,8 @@ export function installMobileLongPress() {
   document.addEventListener('pointermove', event => {
     if (hold && (event.pointerId !== hold.pointer || Math.hypot(event.clientX-hold.x,event.clientY-hold.y)>9)) cancel();
   }, {passive:true});
-  document.addEventListener('pointerup', cancel, {passive:true});
-  document.addEventListener('pointercancel', cancel, {passive:true});
+  document.addEventListener('pointerup', () => {if(consumed)consumed.until=performance.now()+700;cancel();}, {passive:true});
+  document.addEventListener('pointercancel', () => {consumed=null;cancel();}, {passive:true});
   document.addEventListener('contextmenu', event => {
     if(event.isTrusted && consumed && performance.now()<consumed.until && consumed.element.contains(event.target as Node)) {
       event.preventDefault();event.stopImmediatePropagation();
