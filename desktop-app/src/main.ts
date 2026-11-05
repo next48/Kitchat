@@ -9,6 +9,8 @@ import "./mobile-motion.css";
 import { mountMobileLayers, setMobileLayerState } from "./mobile-navigation";
 import "./mobile-navigation.css";
 import "./mobile-voice-float.css";
+import "./mobile-performance.css";
+import { presentVoicePreview } from "./mobile-voice-preview";
 import { installMobileVoiceFloat } from "./mobile-voice-float";
 let phoneVoiceFloat: ReturnType<typeof installMobileVoiceFloat> | undefined;
 import { installMobileCallControls } from "./mobile-call-controls";
@@ -2918,11 +2920,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           const list = preview.querySelector(".mobile-voice-people")!;
           if (people?.childElementCount) list.append(people.cloneNode(true));
           else list.textContent = "В голосовом канале пока никого нет.";
-          preview.addEventListener("close", () => preview.remove(), { once: true });
-          preview.querySelector("[data-voice-close]")?.addEventListener("click", () => preview.close());
-          preview.querySelector("[data-voice-join]")?.addEventListener("click", () => { preview.close(); join(); });
-          document.body.append(preview);
-          preview.showModal();
+          presentVoicePreview(preview, join);
         }),
     );
   document.querySelector<HTMLButtonElement>("#selfMute")!.onclick = () => {

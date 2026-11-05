@@ -1,14 +1,14 @@
 {
   "name": "oliver-kitchen-desktop",
   "private": true,
-  "version": "1.5.4",
+  "version": "1.5.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "node --test tools/p2p-regression.test.mjs tools/social-regression.test.mjs tools/navigation-cache.test.mjs tools/mobile-navigation.test.mjs tools/mobile-voice-float.test.mjs"
+    "test": "node --test tools/p2p-regression.test.mjs tools/social-regression.test.mjs tools/navigation-cache.test.mjs tools/mobile-navigation.test.mjs tools/mobile-voice-float.test.mjs tools/mobile-voice-preview.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "5.2.8",

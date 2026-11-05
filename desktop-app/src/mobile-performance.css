@@ -1,0 +1,27 @@
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+  /* Screens reach the bottom edge; only interactive footers own its safe area. */
+  body { padding-bottom:0; background:#121214; }
+  body.mobile-keyboard-open { --phone-bottom:0px; }
+  body:not(.mobile-keyboard-open) { --phone-bottom:env(safe-area-inset-bottom,0px); }
+  .phone-shell .composer { padding-bottom:max(12px,var(--phone-bottom)); }
+  .phone-shell .mobile-info-sheet { padding-bottom:var(--phone-bottom); }
+  .mobile-home .phone-server-dock { padding-bottom:max(8px,var(--phone-bottom)); }
+  .mobile-home .mobile-account { margin-bottom:0; }
+  /* A single composited surface moves, rather than every list row animating. */
+  .phone-shell :is(.home-friend-row,.friend-row,.friends-empty,.dm-welcome,.channel-scroll,.member,.message-start) { animation:none; }
+  .phone-shell :is(.mobile-chat-screen,.mobile-info-sheet) { backface-visibility:hidden; will-change:transform; box-shadow:none; }
+  .phone-shell :is(.messages,.dm-messages,.members,.phone-channel-scroll) { overflow-anchor:none; }
+  .modal-layer,.friend-picker-layer { backdrop-filter:none; -webkit-backdrop-filter:none; }
+  .phone-shell :is(button,.avatar,.channel,.server) { transition-property:background-color,color,opacity,transform; }
+  .mobile-voice-preview[open] { animation:voice-preview-in .3s cubic-bezier(.22,.72,.2,1) both; will-change:transform; }
+  .mobile-voice-preview[open]::backdrop { animation:voice-backdrop-in .24s ease-out both; }
+  .mobile-voice-preview[open].is-closing { animation:voice-preview-out .2s ease-in both; pointer-events:none; }
+  .mobile-voice-preview[open].is-closing::backdrop { animation:voice-backdrop-out .2s ease-in both; }
+  @keyframes voice-preview-in { from { transform:translate3d(0,100%,0); } to { transform:translate3d(0,0,0); } }
+  @keyframes voice-preview-out { to { transform:translate3d(0,100%,0); } }
+  @keyframes voice-backdrop-in { from { background:#0000; } to { background:#0009; } }
+  @keyframes voice-backdrop-out { from { background:#0009; } to { background:#0000; } }
+}
+@media (prefers-reduced-motion:reduce) {
+  .mobile-voice-preview[open],.mobile-voice-preview[open]::backdrop { animation:none!important; }
+}

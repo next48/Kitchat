@@ -35,6 +35,7 @@ jobs:
       - name: Build device archive
         run: |
           npm run tauri -- ios init --ci --skip-targets-install
+          node tools/prepare-ios-icons.mjs
           npm run tauri -- ios build --target aarch64 --no-sign --archive-only --ci
       - name: Package SideStore IPA
         shell: bash
