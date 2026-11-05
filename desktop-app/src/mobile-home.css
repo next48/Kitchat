@@ -2,7 +2,7 @@
 .phone-server-screen { display: none; }
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1366px) {
   .phone-shell[data-pane="channels"] { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
-  .phone-shell[data-pane="channels"] > .mobile-home {
+  .phone-shell > .mobile-home {
     --home-bg: #111214;
     --home-panel: #1a1a1e;
     --home-control: #27272c;

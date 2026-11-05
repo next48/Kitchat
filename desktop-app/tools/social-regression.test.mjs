@@ -109,6 +109,13 @@ test('member grouping uses each user identity even when server role sorting diff
   assert.ok(markup.indexOf('data-person="3"')<markup.indexOf('data-person="2"'));
   assert.match(markup, /class="member online [^"]*" data-person="3"/);
   assert.match(markup, /class="member offline [^"]*" data-person="2"/);
+  const mobile=render([{id:1,name:'Admin',online:true,global_role:'superadmin'},{id:2,name:'Owner',online:false,role:'owner'},{id:3,name:'Member',online:true}],true);
+  assert.equal((mobile.match(/class="mobile-member-group" role="list"/g)||[]).length,2);
+  assert.equal((mobile.match(/role="listitem"/g)||[]).length,3);
+  assert.match(mobile, /В сети — 2/); assert.match(mobile, /Не в сети — 1/);
+  assert.ok(mobile.indexOf('data-person="3"')<mobile.indexOf('data-person="2"'));
+  assert.ok(!markup.includes('mobile-member-group'));
+
 });
 test('online presence uses fresh desktop sessions and explicit app shutdown',()=>{
   assert.match(sessionPhp,/last_seen_at>=DATE_SUB\(NOW\(\),INTERVAL 20 SECOND\)/);

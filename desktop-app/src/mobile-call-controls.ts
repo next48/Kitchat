@@ -1,3 +1,4 @@
+import { ico } from "./icons";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 export function installMobileCallControls(host: HTMLElement) {
@@ -14,12 +15,13 @@ export function installMobileCallControls(host: HTMLElement) {
     }, 5000);
   };
   host.addEventListener("pointerdown", show);
+  host.addEventListener("voice-show", show);
   const attach = () => {
     const header = host.querySelector(".embedded-call-header");
     if (!header || header.querySelector(".phone-pip")) return;
     const pip = document.createElement("button");
     pip.className = "phone-pip"; pip.type = "button";
-    pip.textContent = "▣"; pip.setAttribute("aria-label", "Видео поверх приложений");
+    pip.innerHTML = ico("pip"); pip.setAttribute("aria-label", "Видео поверх приложений");
     const video = () => host.querySelector<HTMLVideoElement>(".video-tile.has-video video, .p2p-screen-tile:not(.stream-available) video");
     pip.onclick = async () => {
       const player = video() as HTMLVideoElement & {webkitSetPresentationMode?: (mode: string) => void};
@@ -34,14 +36,14 @@ export function installMobileCallControls(host: HTMLElement) {
     header.append(pip);
     if (ios) {
       const route = document.createElement("button"); route.type = "button";
-      route.className = "phone-audio-route"; route.textContent = "Динамик";
+      route.className = "phone-audio-route"; route.innerHTML = ico("volume");
       route.setAttribute("aria-label", "Переключить динамик и телефон");
       route.onclick = async () => {
         route.disabled = true;
         try {
           const next = !speaker;
           const result = await audio(true, next);
-          speaker = next; route.textContent = speaker ? "Динамик" : "Телефон";
+          speaker = next; route.innerHTML = ico(speaker ? "volume" : "phone"); route.setAttribute("aria-label", speaker ? "Звук: динамик. Переключить на телефон" : "Звук: телефон. Переключить на динамик");
           route.title = result.route;
         } catch (error) { route.title = String(error); }
         finally { route.disabled = false; }

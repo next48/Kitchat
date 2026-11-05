@@ -1,0 +1,41 @@
+/* One live call surface; shrinking it never duplicates or disconnects media. */
+@media (max-width:760px), (pointer:coarse) and (max-width:1366px) {
+  body:has(.phone-shell) :is(#voiceDockApp,#phoneVoiceReturn) { display:none!important; }
+  #phoneVoiceHost { transform-origin:top left; }
+  #phoneVoiceHost .voice-float-open { display:none; }
+  #phoneVoiceHost.voice-floating {
+    inset:auto; left:var(--voice-float-x); top:var(--voice-float-y);
+    width:128px; height:128px; padding:0; border:1px solid #ffffff14;
+    border-radius:22px; background:#191d17; overflow:hidden; z-index:30;
+    transform:none; transition:none; touch-action:none; box-shadow:0 5px 24px #0004;
+  }
+  #phoneVoiceHost.voice-floating > .call-screen { width:100%; height:100%; min-height:0; margin:0; padding:0; border:0; border-radius:inherit; background:#191d17; pointer-events:none; }
+  #phoneVoiceHost.voice-floating :is(.embedded-call-header,.call-controls,.call-reactions-layer,.roulette-panel,.call-fullscreen-toolbar,.stream-available) { display:none!important; }
+  #phoneVoiceHost.voice-floating .call-stage { position:absolute; inset:0; display:block; width:100%; height:100%; min-height:0; padding:0; overflow:hidden; border-radius:inherit; }
+  #phoneVoiceHost.voice-floating :is(.video-grid,.p2p-screen-grid,#videoGrid,#p2pScreens) { position:absolute; inset:0; display:block!important; width:100%; height:100%!important; background:transparent; }
+  #phoneVoiceHost.voice-floating :is(.video-tile,.p2p-screen-tile) { display:none!important; }
+  #phoneVoiceHost.voice-floating [data-float-selected] {
+    position:absolute; inset:0; display:grid!important; place-items:center;
+    width:100%!important; height:100%!important; min-height:0!important;
+    max-width:none; aspect-ratio:1; margin:0; border:0; border-radius:inherit;
+    background:#191d17; box-shadow:none; transform:none; animation:none; container-type:normal; contain:none;
+  }
+  #phoneVoiceHost.voice-floating [data-float-selected]::before { display:none; }
+  #phoneVoiceHost.voice-floating [data-float-selected]::after { box-shadow:none; }
+  #phoneVoiceHost.voice-floating [data-float-selected] :is(footer,.tile-fullscreen,.p2p-screen-toolbar,.stream-watch-button) { display:none!important; }
+  #phoneVoiceHost.voice-floating .voice-avatar .avatar { width:62px; height:62px; font-size:25px; box-shadow:none; }
+  #phoneVoiceHost.voice-floating .voice-avatar::before { animation:none; }
+  #phoneVoiceHost.voice-floating video { object-fit:contain!important; }
+  #phoneVoiceHost.voice-floating .voice-float-open { position:absolute; inset:0; z-index:8; display:block; width:100%; height:100%; padding:0; border:0; border-radius:inherit; background:transparent; color:#d9d9df; touch-action:none; }
+  #phoneVoiceHost.voice-floating .voice-float-open:focus-visible { outline:2px solid #929aff; outline-offset:-3px; }
+  #phoneVoiceHost .voice-float-handle { display:none; }
+  #phoneVoiceHost .voice-float-avatar { position:absolute; inset:0; display:grid; place-items:center; }
+  #phoneVoiceHost .voice-float-avatar .avatar { width:62px; height:62px; font-size:25px; box-shadow:none; }
+  #phoneVoiceHost .voice-float-avatar[hidden] { display:none; }
+  #phoneVoiceHost.voice-floating[data-tucked]:not([data-tucked=""]) { background:transparent; border-color:transparent; box-shadow:none; }
+  #phoneVoiceHost.voice-floating[data-tucked]:not([data-tucked=""]) > .call-screen { opacity:0; }
+  #phoneVoiceHost.voice-floating[data-tucked]:not([data-tucked=""]) .voice-float-avatar { display:none; }
+  #phoneVoiceHost.voice-floating[data-tucked]:not([data-tucked=""]) .voice-float-handle { position:absolute; top:35px; display:grid; place-items:center; width:24px; height:58px; border:1px solid #ffffff1c; border-radius:12px; background:#333339; font-size:28px; box-shadow:0 2px 10px #0003; }
+  #phoneVoiceHost.voice-floating[data-tucked=left] .voice-float-handle { right:0; }
+  #phoneVoiceHost.voice-floating[data-tucked=right] .voice-float-handle { left:0; }
+}

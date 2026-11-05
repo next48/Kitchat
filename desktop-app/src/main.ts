@@ -6,6 +6,11 @@ import "./mobile.css";
 import "./mobile-home.css";
 import "./mobile-discord.css";
 import "./mobile-motion.css";
+import { mountMobileLayers, setMobileLayerState } from "./mobile-navigation";
+import "./mobile-navigation.css";
+import "./mobile-voice-float.css";
+import { installMobileVoiceFloat } from "./mobile-voice-float";
+let phoneVoiceFloat: ReturnType<typeof installMobileVoiceFloat> | undefined;
 import { installMobileCallControls } from "./mobile-call-controls";
 import { NavigationCache } from "./navigation-cache";
 const navigationCache = new NavigationCache<CommunityState>();
@@ -1924,23 +1929,22 @@ function openPhoneVoiceHost() {
   if (!host) {
     host = document.createElement("section");
     host.id = "phoneVoiceHost";
+    host.hidden = true;
     host.setAttribute("aria-label", "Голосовой канал");
     document.body.append(host);
     installMobileCallControls(host);
+    phoneVoiceFloat = installMobileVoiceFloat(host);
     host.addEventListener("click", (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".mobile-call-back")) return;
-      host!.hidden = true;
-      const shell = app.querySelector<HTMLElement>(".app-shell");
-      if (shell) selectMobilePane(shell, "channels");
-      document.querySelector("#phoneVoiceReturn")?.remove();
-      const resume = document.createElement("button");
-      resume.id = "phoneVoiceReturn";
-      resume.textContent = "Вернуться в голосовой канал";
-      resume.onclick = () => { restorePhoneVoice(); };
-      document.body.append(resume);
+      phoneVoiceFloat?.minimize();
     });
   }
-  host.hidden = false;
+  if (host.classList.contains("voice-floating")) phoneVoiceFloat?.expand();
+  const wasHidden = host.hidden;
+  host.hidden = false; host.inert = false;
+  if (wasHidden) { host.classList.add("voice-dismissed"); void host.getBoundingClientRect(); }
+  host.classList.remove("voice-dismissed");
+  host.dispatchEvent(new Event("voice-show"));
   document.querySelector("#phoneVoiceReturn")?.remove();
   return host;
 }
@@ -1974,10 +1978,16 @@ function memberSidebarRoleLabel(member: User) {
     : member.role === "moderator" ? "Модератор"
     : member.online ? "В сети" : "Не в сети";
 }
-function memberRows(members: User[]) {
+function memberRows(members: User[], mobile = false) {
   const online = members.filter((m) => !!m.online);
   const offline = members.filter((m) => !m.online);
   const row = (m: User) => `<div class="member ${m.online ? "online" : "offline"} ${m.global_role === "superadmin" ? "supreme" : ""}" data-person="${m.id}" data-person-name="${esc(m.name)}"><div class="avatar">${avatar(m)}<i></i></div><div><b>${esc(m.name)}</b><small>${esc(memberSidebarRoleLabel(m))}</small></div></div>`;
+  if (mobile) {
+    const group = (people: User[], label: string) => people.length
+      ? `<section class="mobile-member-section" aria-label="${label}"><h3 class="member-group-title">${label} — ${people.length}</h3><div class="mobile-member-group" role="list">${people.map(person => row(person).replace('class="member ', 'role="listitem" class="member ')).join("")}</div></section>`
+      : "";
+    return group(online, "В сети") + group(offline, "Не в сети");
+  }
   return `${online.length ? `<div class="member-group-title">В сети — ${online.length}</div>${online.map(row).join("")}` : ""}${offline.length ? `<div class="member-group-title offline-title">Не в сети — ${offline.length}</div>${offline.map(row).join("")}` : ""}`;
 }
 
@@ -1989,10 +1999,7 @@ function selectMobilePane(shell: HTMLElement, pane: string) {
   app.dataset.mobilePane = pane;
   shell.dataset.pane = pane;
   if (phoneLayout.matches) {
-    shell.querySelectorAll<HTMLElement>(":scope > .mobile-home, :scope > .chat, :scope > .mobile-chat-bar, :scope > .members, :scope > .mobile-members-bar").forEach((layer) => {
-      const owner = layer.matches(".mobile-home") ? "channels" : layer.matches(".chat, .mobile-chat-bar") ? "chat" : "members";
-      layer.inert = owner !== pane;
-    });
+    setMobileLayerState(shell, pane);
   }
   shell.querySelectorAll(".mobile-home-nav button").forEach((button) => {
     const current = pane === "profile" ? button.matches("[data-mobile-pane=profile]")
@@ -2001,12 +2008,6 @@ function selectMobilePane(shell: HTMLElement, pane: string) {
     if (current) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  if (pane === "chat" && phoneLayout.matches) {
-    requestAnimationFrame(() => {
-      const messages = shell.querySelector<HTMLElement>(".messages, .dm-messages");
-      if (messages && messages.clientHeight && messages.scrollTop === 0) messages.scrollTop = messages.scrollHeight;
-    });
-  }
 }
 
 function bindMobileNavigation() {
@@ -2055,7 +2056,7 @@ function bindMobileNavigation() {
       if (server) lastMobileServer = server.dataset.server;
     }
     if (event.target.closest("[data-edit-channel]")) return;
-    if (event.target.closest("[data-channel], [data-dm-user], [data-message-friend], [data-social-dm], #homeFriends, #homeRequests")) {
+    if (event.target.closest("#homeFriends, #homeRequests")) {
       selectMobilePane(shell, "chat");
     }
   }, { capture: true });
@@ -2161,7 +2162,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           ? `<i class="channel-manage" data-edit-channel="${c.id}" title="Настроить канал">${ico("edit")}</i>`
           : "";
         const connected = type === "voice" && c.id === activeVoiceChannel;
-        const button = `<button class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : phone ? "volume" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом · ${"P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
+        const button = `<button class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : phone ? "volume" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом${phone ? "" : " · P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
         return type === "voice"
           ? `<div class="voice-channel-wrap">${button}<div class="voice-presence" data-channel-id="${c.id}">${users.map(voicePerson).join("")}</div></div>`
           : button;
@@ -2229,7 +2230,8 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     profileMarkup: mobileAccount(esc(user.name), avatar(user), getVoicePreferences().muted, getVoicePreferences().deafened),
     voiceDock: dockMarkup(),
   }) : desktopNavigation;
-  app.innerHTML = `<main class="app-shell ${onPhone ? "phone-shell" : ""} ${active ? "" : "no-server"}">${navigation}<section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Пригласить участников">${ico("user-plus")}<span class="mobile-invite-label">Пригласить</span></button>` : ""}</header>${active ? memberRows(state.server_members) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside>${onPhone ? mobileChatHeader(esc(active ? (selected ? "#" + selected.name : active.name) : (dmPeer?.name || (homePane.kind === "requests" ? "Уведомления" : "Друзья"))), Boolean(active), state.server_members.filter((member) => member.online).length) : ""}<header class="mobile-members-bar"><button type="button" class="mobile-back" data-mobile-pane="chat" aria-label="Назад в чат">${ico("chevron-right")}</button><div class="mobile-chat-title"><b>${esc(selected?.name ? "#" + selected.name : "Участники")}</b><small>Информация о канале</small></div></header>${mobileHomeMarkup({ name: esc(user.name), login: esc(user.login), avatar: avatar(user) })}</main>`;
+  app.innerHTML = `<main class="app-shell ${onPhone ? "phone-shell" : ""} ${active ? "" : "no-server"}">${navigation}<section class="chat">${middle}</section><aside class="members"><header><div><b>${active ? `Участники — ${state.server_members.length}` : `В сети — ${friends.filter((p) => p.online).length}`}</b></div>${active ? `<button id="membersFriends" title="Пригласить участников">${ico("user-plus")}<span class="mobile-invite-label">Пригласить</span></button>` : ""}</header>${active ? memberRows(state.server_members, onPhone) : friends.filter((p) => p.online).map((p) => `<div class="member online" data-person="${p.id}"><div class="avatar">${avatar(p)}<i></i></div><div><b>${esc(p.name)}</b><small>В сети</small></div></div>`).join("") || `<p class="dm-right-empty">Никого из друзей сейчас нет в сети</p>`}</aside>${onPhone ? mobileChatHeader(esc(active ? (selected ? "# " + selected.name : active.name) : (dmPeer?.name || (homePane.kind === "requests" ? "Уведомления" : "Друзья"))), Boolean(active), state.server_members.filter((member) => member.online).length) : ""}<header class="mobile-members-bar"><button type="button" class="mobile-back" data-mobile-pane="chat" aria-label="Назад в чат">${ico("chevron-right")}</button><div class="mobile-chat-title"><b>${esc(selected?.name ? "# " + selected.name : "Участники")}</b><small>Информация о канале</small></div></header>${mobileHomeMarkup({ name: esc(user.name), login: esc(user.login), avatar: avatar(user) })}</main>`;
+  mountMobileLayers(app.querySelector<HTMLElement>(".app-shell")!);
   bindMobileNavigation();
   paletteSources = () => [
     ...sortedServers.map((server) => ({ group: "Серверы", label: server.name, hint: server.id === active?.id ? "открыт" : undefined, icon: server.icon ? `<img src="${esc(assetUrl(server.icon))}" alt="">` : esc(server.name.slice(0, 2).toUpperCase()), run: () => void shellView(server.id, "") })),
@@ -2323,7 +2325,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       if (mobileOnline) mobileOnline.textContent = `${state.server_members.filter((member) => member.online).length} в сети`;
       const header = membersPanel.querySelector("header b");
       if (header) header.textContent = active ? `Участники — ${state.server_members.length}` : `В сети — ${online.length}`;
-      membersBody.innerHTML = active ? memberRows(state.server_members) : memberRows(online.map(person => ({ ...person, login: "" }))) || '<p class="dm-right-empty">Друзья появятся здесь, когда будут в сети.</p>';
+      membersBody.innerHTML = active ? memberRows(state.server_members, onPhone) : memberRows(online.map(person => ({ ...person, login: "" })), onPhone) || '<p class="dm-right-empty">Друзья появятся здесь, когда будут в сети.</p>';
       const homeCount = document.querySelector("#homeFriends small"); if (homeCount) homeCount.textContent = `${online.length} сейчас в сети`;
       const requestCount = document.querySelector("#homeRequests small"); if (requestCount) requestCount.textContent = incoming.length ? `${incoming.length} новых` : "Новых заявок нет";
       for (const selector of ["#homeStart", "#homeRequests"]) {
@@ -2507,7 +2509,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   document.querySelector("#mobileAccountRequests")?.addEventListener("click", () => openHomeFriends("requests"));
   document.querySelector<HTMLButtonElement>("#friendsTabAll")?.addEventListener("click", () => { homePane = { kind: "friends" }; void shellView(0, "", true); });
   document.querySelector<HTMLButtonElement>("#friendsTabRequests")?.addEventListener("click", () => { homePane = { kind: "requests" }; void shellView(0, "", true); });
-  document.querySelectorAll<HTMLButtonElement>("[data-dm-user],[data-message-friend]").forEach((button) => button.addEventListener("click", () => { const id = Number(button.dataset.dmUser || button.dataset.messageFriend || 0); if (!id) return; homePane = { kind: "dm", userId: id }; app.dataset.mobilePane = "chat"; void shellView(0, "", true); }));
+  document.querySelectorAll<HTMLButtonElement>("[data-dm-user],[data-message-friend]").forEach((button) => button.addEventListener("click", () => { const id = Number(button.dataset.dmUser || button.dataset.messageFriend || 0); if (!id) return; if (phoneLayout.matches && homePane.kind === "dm" && homePane.userId === id && app.querySelector(".dm-messages")) { const shell = app.querySelector<HTMLElement>(".app-shell"); if (shell) selectMobilePane(shell, "chat"); return; } homePane = { kind: "dm", userId: id }; app.dataset.mobilePane = "chat"; void shellView(0, "", true); }));
   document.querySelector<HTMLElement>(".social-hub")?.addEventListener("click", (event) => {
     const button = (event.target as HTMLElement).closest<HTMLElement>("[data-social-add]");
     if (button) friendsModal(0, () => void syncSocial(), state.people, false);
@@ -2840,12 +2842,22 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
           const shell = b.closest<HTMLElement>(".app-shell");
           const slug = b.dataset.channel || "";
           if (phoneLayout.matches && shell) {
-            selectMobilePane(shell, "chat");
-            if (slug === selected?.slug && !shell.querySelector(".call-screen")) return;
+            if (slug === selected?.slug && !shell.querySelector(".call-screen")) { selectMobilePane(shell, "chat"); return; }
+            app.dataset.mobilePane = "chat";
           }
           void shellView(active!.id, slug);
         }),
     );
+  if (phoneLayout.matches && active) {
+    const warmChannel = (event: Event) => {
+      const slug = (event.currentTarget as HTMLElement).dataset.channel || "";
+      void navigationCache.load(`${token()}|${active.id}|${slug}`, () => community({server_id:active.id, channel:slug})).catch(() => {});
+    };
+    document.querySelectorAll<HTMLElement>("[data-channel]").forEach(button => {
+      button.addEventListener("pointerenter", warmChannel, {once:true});
+      button.addEventListener("pointerdown", warmChannel, {once:true,passive:true});
+    });
+  }
   document.querySelectorAll<HTMLElement>("[data-edit-channel]").forEach(
     (button) =>
       (button.onclick = (event) => {
@@ -3846,17 +3858,7 @@ async function callViewLiveKit(
     connectionLabel.textContent = "Устанавливаем голосовую связь…";
   host.innerHTML = `<main class="call-screen embedded"><header class="embedded-call-header"><button type="button" class="mobile-call-back mobile-back" data-mobile-pane="channels" aria-label="Назад к каналам">${ico("chevron-right")}</button><div class="call-heading"><b>${esc(name)}</b><small>${esc(serverName)} · Голосовой канал</small></div><span class="online" id="roomState"><i></i>Подключение…</span></header><section class="call-stage" id="callStage">${fullscreenCallControls()}<div class="video-grid" id="videoGrid"></div></section><footer class="call-controls"><button id="callMic">${ico("mic")}</button><button id="callCamera">${ico("camera")}</button><button id="callShare">${ico("video-message")}</button><button id="callDeafen">${ico("headphones")}</button><button id="callFullscreen">${ico("focus")}</button><button id="callLeave" class="danger">${ico("phone-down")}</button></footer><div id="remoteAudio"></div></main>`;
   activeVoiceRoom = host.querySelector(".call-screen");
-  if (host.id === "phoneVoiceHost") {
-    host.querySelector(".mobile-call-back")?.addEventListener("click", () => {
-      host.hidden = true;
-      const resume = document.createElement("button");
-      resume.id = "phoneVoiceReturn";
-      resume.type = "button";
-      resume.innerHTML = `${ico("signal")}<span>${esc(activeVoiceMeta?.name || "Голосовой канал")}</span><time data-voice-duration>${voiceDurationText()}</time>${ico("chevron-right")}`;
-      resume.onclick = () => { restorePhoneVoice(); };
-      document.body.append(resume);
-    });
-  }
+
   const mobileShell = host.closest<HTMLElement>(".app-shell");
   if (mobileShell) selectMobilePane(mobileShell, "chat");
   const room = new Room({
@@ -4079,6 +4081,7 @@ async function callViewLiveKit(
     activeVoiceMode = null;
     activeVoiceSetUserVolume = null;
     activeVoiceRoom = null;
+    document.querySelector("#phoneVoiceHost")?.remove();
     if (!changingVoiceChannel) await shellView(serverId, "");
   };
   activeVoiceLeave = leave;
@@ -6494,7 +6497,7 @@ async function callViewP2P(
   if (phoneLayout.matches) {
     const flip = document.createElement("button");
     flip.type = "button"; flip.className = "phone-camera-flip";
-    flip.setAttribute("aria-label", "Переключить камеру"); flip.textContent = "↻";
+    flip.setAttribute("aria-label", "Переключить камеру"); flip.innerHTML = ico("camera-flip");
     host.querySelector(".embedded-call-header")?.append(flip);
     flip.onclick = async () => {
       if (cameraBusy || leaving) return;
@@ -7297,7 +7300,7 @@ if (navigator.mediaDevices) void navigator.mediaDevices.enumerateDevices().then(
         return;
       }
       const delay = Math.min(30, attempt * 2);
-      app.innerHTML = `<main class="loading-screen"><div class="loading-logo"><img src="/kitchat-loader.png" alt=""></div><p>Ждём подключения к интернету<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><small class="loading-hint">Повторим через ${delay} с — вход сохранён</small></main>`;
+      app.innerHTML = `<main class="loading-screen"><div class="loading-logo"><img src="/kitchat-loader.png" alt=""></div><p>${phoneLayout.matches ? (navigator.onLine ? "Нет связи с сервером KitChat" : "Нет подключения к интернету") : "Ждём подключения к интернету"}<span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span></p><small class="loading-hint">Повторим через ${delay} с — вход сохранён</small></main>`;
       await new Promise<void>((resolve) => {
         const timer = window.setTimeout(done, delay * 1000);
         function done() { window.clearTimeout(timer); window.removeEventListener("online", done); resolve(); }

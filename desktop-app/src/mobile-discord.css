@@ -29,7 +29,16 @@
     overscroll-behavior: none;
     touch-action: manipulation;
   }
-  .phone-shell button { box-shadow: none; }
+  /* Mobile craft system — direction audited with Unslop by Damir Sokolovsky (CC BY 4.0). */
+  body {
+    --mobile-body:16px; --mobile-caption:14px; --mobile-meta:12px;
+    --mobile-row:48px; --mobile-ease:cubic-bezier(.22,.72,.2,1);
+  }
+  .phone-shell, #phoneVoiceHost { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; font-size:var(--mobile-body); font-weight:400; line-height:1.5; }
+  .phone-shell button { box-shadow: none; font-family:inherit; }
+  .phone-shell :is(time,[data-voice-duration]) { font-variant-numeric:tabular-nums; }
+  .loading-screen p { font-size:16px; line-height:24px; font-weight:500; max-width:28ch; text-align:center; }
+  .loading-screen .loading-hint { font-size:14px; line-height:20px; text-align:center; }
   .phone-shell button:focus-visible,
   #phoneVoiceHost button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .phone-shell button:active,
@@ -47,7 +56,7 @@
     min-height: 0;
     overflow: hidden;
   }
-  .phone-shell[data-pane="channels"] > .mobile-home {
+  .phone-shell > .mobile-home {
     display: grid;
     grid-template-columns: 68px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
@@ -64,7 +73,7 @@
     grid-area: 1 / 1;
     flex-direction: column;
     align-items: center;
-    gap: 11px;
+    gap: 12px;
     padding: 8px 0 12px;
     min-width: 0;
     background: #121214;
@@ -75,7 +84,7 @@
     scrollbar-width: none;
   }
   .mobile-home .phone-server-rail::-webkit-scrollbar { display: none; }
-  .mobile-home .mobile-server-list { display: flex; flex-direction: column; gap: 11px; align-items: center; }
+  .mobile-home .mobile-server-list { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .mobile-home .phone-server-rail :is(.home, .server, .add) {
     position: relative;
     display: grid;
@@ -91,7 +100,7 @@
     background: #242428;
     color: #c4c4cb;
     font-size: 17px;
-    font-weight: 650;
+    font-weight: 600;
     transition: background .16s ease, border-radius .18s ease;
   }
   .mobile-home .phone-server-rail .server.active,
@@ -135,8 +144,8 @@
     align-items: center;
     gap: 8px;
     flex: none;
-    min-height: 74px;
-    padding: 21px 18px 10px;
+    min-height: 72px;
+    padding: 16px 16px 8px;
     border: none;
     background: #1b1b1f;
   }
@@ -144,14 +153,15 @@
     flex: 1;
     min-width: 0;
     margin: 0;
-    font-size: 23px;
+    font-size: 24px;
     line-height: 1.2;
-    font-weight: 700;
-    letter-spacing: -.025em;
+    font-weight: 600;
+    letter-spacing: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
+  .mobile-home #serverMenuToggle b { font-size:24px; line-height:32px; font-weight:600; letter-spacing:0; }
   .mobile-home .phone-server-heading #serverSettings {
     display: grid;
     place-items: center;
@@ -173,7 +183,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 9px;
+    gap: 8px;
     min-width: 0;
     min-height: 44px;
     height: 44px;
@@ -189,14 +199,14 @@
   .mobile-home .phone-channel-list {
     flex: 1;
     min-height: 0;
-    padding: 0 12px 18px;
+    padding: 0 12px 20px;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: none;
   }
   .mobile-home .phone-channel-list::-webkit-scrollbar { display: none; }
-  .mobile-home .phone-channel-group { margin: 6px 0 14px; padding: 0; }
+  .mobile-home .phone-channel-group { margin: 8px 0 16px; padding: 0; }
   .mobile-home .phone-channel-group > header {
     min-height: 44px;
     display: flex;
@@ -208,7 +218,7 @@
   .mobile-home [data-phone-collapse] {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
     min-height: 44px;
     color: #a3a3ad;
     font-size: 13px;
@@ -217,7 +227,7 @@
   .mobile-home [data-phone-collapse] .ic { width: 15px; height: 15px; }
   .mobile-home .channel {
     min-height: 48px;
-    padding: 8px 10px;
+    padding: 8px 12px;
     border-radius: 10px;
     font-size: 16px;
     font-weight: 500;
@@ -230,7 +240,7 @@
   .mobile-home .channel.voice-connected { color: #45b98d; }
   .mobile-home .channel .ic { width: 21px; height: 21px; }
   .mobile-home .channel small { color: #8e8e99; font-size: 12px; font-weight: 400; }
-  .mobile-home .channel .voice-channel-duration { font-size: 11px; }
+  .mobile-home .channel .voice-channel-duration { font-size: 12px; }
   .mobile-home .voice-presence { padding-left: 22px; margin: 5px 0 8px; }
   .mobile-home .voice-presence button { min-height: 38px; }
 
@@ -238,8 +248,8 @@
   .mobile-home .phone-inbox-shortcuts {
     display: grid;
     gap: 0;
-    margin: 0 0 10px;
-    padding: 2px 0 12px;
+    margin: 0 0 12px;
+    padding: 4px 0 12px;
     border-top: 1px solid #303036;
     border-bottom: 1px solid #303036;
   }
@@ -249,7 +259,7 @@
     gap: 12px;
     width: 100%;
     min-height: 64px;
-    padding: 7px 7px;
+    padding: 8px;
     border: none;
     border-radius: 10px;
     background: transparent;
@@ -258,19 +268,19 @@
   }
   .mobile-home .phone-inbox-shortcuts > button:active { background: #29292e; }
   .mobile-home .phone-inbox-shortcuts > button > span { display: grid; min-width: 0; }
-  .mobile-home .phone-inbox-shortcuts b { color: #eeedf0; font-weight: 600; font-size: 15px; }
-  .mobile-home .phone-inbox-shortcuts small { color: #90909b; font-size: 12px; font-weight: 400; }
+  .mobile-home .phone-inbox-shortcuts b { color: var(--text); font-weight: 600; font-size: var(--mobile-body); }
+  .mobile-home .phone-inbox-shortcuts small { color: var(--text-2); font-size: var(--mobile-caption); font-weight: 400; }
   .mobile-home .phone-inbox-shortcuts .ic { width: 22px; height: 22px; color: #a6a6b0; }
   .mobile-home .phone-inbox-threads > header { min-height: 44px; padding: 0 6px; }
-  .mobile-home .phone-inbox-threads h2 { font-size: 12px; letter-spacing: .035em; text-transform: uppercase; color: #a0a0ab; font-weight: 650; }
+  .mobile-home .phone-inbox-threads h2 { font-size: 14px; letter-spacing: 0; text-transform: none; color: #a0a0ab; font-weight: 600; }
   .mobile-home .phone-icon-button { width: 44px; height: 44px; color: #b7b7c0; }
   .mobile-home .dm-thread-list { display: grid; gap: 0; }
   .mobile-home .mobile-conversation {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: 11px;
+    gap: 12px;
     width: 100%;
-    min-height: 66px;
+    min-height: 72px;
     padding: 8px;
     margin: 0;
     border: none;
@@ -281,10 +291,10 @@
   }
   .mobile-home .mobile-conversation.is-unread { background: #30303b; }
   .mobile-home .mobile-conversation-copy { min-width: 0; }
-  .mobile-home .mobile-conversation b { color: #f1f1f3; font-size: 14px; font-weight: 650; }
-  .mobile-home .mobile-conversation small { color: #9393a0; font-size: 12px; font-weight: 400; }
-  .mobile-home .mobile-conversation-meta { gap: 3px; color: #9999a6; }
-  .mobile-home .mobile-conversation time { font-size: 11px; color: #9999a6; }
+  .mobile-home .mobile-conversation b { color: var(--text); font-size: var(--mobile-body); font-weight: 600; }
+  .mobile-home .mobile-conversation small { color: var(--text-2); font-size: var(--mobile-caption); font-weight: 400; }
+  .mobile-home .mobile-conversation-meta { gap: 4px; color: var(--text-2); }
+  .mobile-home .mobile-conversation time { font-size: var(--mobile-meta); color: var(--text-2); }
   .mobile-home .phone-empty-state {
     padding: 34px 12px;
     background: transparent;
@@ -294,7 +304,7 @@
     text-align: center;
   }
   .mobile-home .phone-empty-state > .app-icon { color: #b4b4c0; }
-  .mobile-home .phone-empty-state b { color: #e0e0e5; font-weight: 650; }
+  .mobile-home .phone-empty-state b { color: #e0e0e5; font-weight: 600; }
   .mobile-home .phone-empty-state button { min-height: 44px; padding: 0 12px; color: #a3aaff; background: transparent; box-shadow: none; }
 
   /* Compact, full-width account and in-call dock. */
@@ -305,14 +315,14 @@
     gap: 0;
     position: relative;
     bottom: auto;
-    padding: 8px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 8px 12px max(12px, env(safe-area-inset-bottom));
     background: #121214;
     border: none;
   }
   .mobile-home .mobile-account {
     display: flex;
     align-items: center;
-    min-height: 62px;
+    min-height: 64px;
     height: auto;
     margin: 0;
     padding: 8px 10px;
@@ -321,14 +331,14 @@
     background: #26262c;
     box-shadow: none;
   }
-  .mobile-home .mobile-account-identity { display: flex; flex: 1; gap: 11px; min-width: 0; min-height: 44px; }
+  .mobile-home .mobile-account-identity { display: flex; flex: 1; gap: 12px; min-width: 0; min-height: 44px; }
   .mobile-home .mobile-account-identity > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
-  .mobile-home .mobile-account-identity .avatar { width: 42px; height: 42px; }
-  .mobile-home .mobile-account-identity b { color: #f2f2f4; font-size: 14px; font-weight: 650; }
+  .mobile-home .mobile-account-identity .avatar { width: 40px; height: 40px; }
+  .mobile-home .mobile-account-identity b { color: var(--text); font-size: var(--mobile-body); font-weight: 600; }
   .mobile-home .mobile-account-identity small { color: #a0a0aa; font-size: 12px; }
   .mobile-home .mobile-account-identity > .app-icon { color: #a4a4af; }
   .mobile-home .profile > .mobile-account-actions { display: flex; flex: none; min-width: 0; }
-  .mobile-home .mobile-account-requests { display: grid; place-items: center; width: 42px; height: 42px; flex: none; background: #303036; border-radius: 12px; }
+  .mobile-home .mobile-account-requests { display: grid; place-items: center; width: 44px; height: 44px; flex: none; background: #303036; border-radius: 12px; }
   .mobile-home .voice-dock-app { margin: 0 0 8px; padding: 3px 7px; border-radius: 16px; border: 1px solid #285a43; background: #19372b; box-shadow: none; }
   .mobile-home .voice-status-app { min-height: 48px; display: flex; align-items: center; }
   .mobile-home .voice-status-app [data-voice-return] { cursor: pointer; }
@@ -342,33 +352,59 @@
   .app-shell.phone-shell[data-pane="members"] > .members { background: #19191d; }
   .phone-shell .mobile-chat-bar,
   .phone-shell .mobile-members-bar {
-    min-height: 62px;
-    gap: 7px;
-    padding: 7px 8px;
+    min-height: 64px;
+    gap: 8px;
+    padding: 8px;
     background: #19191d;
     border-bottom: 1px solid #2c2c32;
     box-shadow: none;
   }
-  .phone-shell .mobile-chat-title b { font-size: 16px; line-height: 21px; font-weight: 700; }
+  .phone-shell .mobile-chat-title b { font-size: 16px; line-height: 24px; font-weight: 600; }
   .phone-shell .mobile-chat-title small { display: block; color: #a2a2ae; font-size: 12px; font-weight: 400; }
   .phone-shell .mobile-chat-actions { display: flex; }
   .phone-shell .mobile-chat-bar .phone-icon-button { color: #aaaab7; border-radius: 10px; }
   .phone-shell .mobile-chat-bar .phone-icon-button:active { background: #303037; }
   .phone-shell .messages,
-  .phone-shell .dm-messages { padding-top: 18px; }
+  .phone-shell .dm-messages { padding-top: 16px; }
   .phone-shell .messages article,
-  .phone-shell .dm-messages article { padding-inline: 14px; gap: 11px; }
+  .phone-shell .dm-messages article { padding-inline: 16px; gap: 12px; }
   .phone-shell .messages article > .avatar,
-  .phone-shell .dm-messages article > .avatar { width: 38px; height: 38px; }
-  .phone-shell .message-body p { font-size: 15px; line-height: 1.42; }
+  .phone-shell .dm-messages article > .avatar { width: 40px; height: 40px; }
+  .phone-shell .message-body p { font-size:var(--mobile-body); line-height:24px; }
+  .phone-shell :is(.messages,.dm-messages) article header b { font-size:16px; font-weight:600; line-height:22px; }
+  .phone-shell :is(.messages,.dm-messages) article header time { font-size:12px; line-height:16px; font-weight:400; color:var(--text-2); }
+  .phone-shell :is(.messages,.dm-messages) article header { gap:0 8px; }
+  .phone-shell .message-start { margin-top:16px; }
+  .phone-shell .message-delivery { font-size:12px; letter-spacing:0; }
+  .phone-shell .welcome { padding:24px 16px; animation:none; }
+  .phone-shell .welcome > span { width:64px; height:64px; background:var(--surface-3); color:var(--text-2); box-shadow:none; border-radius:16px; font-weight:500; }
+  .phone-shell .welcome h1 { font-size:22px; line-height:28px; letter-spacing:0; font-weight:600; }
+  .phone-shell .welcome p { font-size:14px; line-height:20px; }
   .phone-shell .composer { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #19191d; }
   .phone-shell .composer-box { min-height: 52px; border-radius: 16px; border: 0; background: #29292f; box-shadow: none; }
-  .phone-shell .composer-box > button { width: 42px; }
+  .phone-shell .composer-box > button { width: 44px; }
   .phone-shell .composer textarea { padding-top: 13px; padding-bottom: 10px; font-size: 16px; }
   .phone-shell .composer .send { width: 44px; height: 44px; border-radius: 50%; background: #5865f2; box-shadow: none; }
-  .phone-shell .members .member { border-radius: 12px; box-shadow: none; }
+  .phone-shell .mobile-member-section { margin:0 0 24px; }
+  .phone-shell .member-group-title { margin:16px 4px 8px; padding:0; font-size:14px; line-height:20px; font-weight:500; letter-spacing:0; text-transform:none; color:var(--text-2); }
+  .phone-shell .mobile-member-group { overflow:hidden; border-radius:16px; background:var(--surface-3); }
+  .phone-shell .mobile-member-group .member { position:relative; min-height:64px; height:auto; padding:12px; margin:0; gap:12px; border:0; border-radius:0; background:transparent; box-shadow:none; opacity:1; }
+  .phone-shell .mobile-member-group .member + .member::before { content:""; position:absolute; top:0; left:64px; right:12px; height:1px; background:var(--line); }
+  .phone-shell .mobile-member-group .member .avatar { width:40px; height:40px; flex:none; }
+  .phone-shell .mobile-member-group .member b { font-size:16px; line-height:20px; font-weight:600; }
+  .phone-shell .mobile-member-group .member small { font-size:14px; line-height:20px; color:var(--text-2); }
+  .phone-shell .mobile-member-group .member.offline { opacity:1; }
+  .phone-shell .mobile-member-group .member.supreme b { background:none; color:#e4bf7c; }
+  .phone-shell .mobile-member-group .member.supreme .avatar { box-shadow:none; }
+  .phone-shell .members-list { display:block; padding:0 0 12px; }
+  .phone-shell .social-heading .eyebrow { display:none; }
+  .phone-shell .social-heading h1 { font-size:24px; line-height:32px; font-weight:600; letter-spacing:0; }
+  .phone-shell .social-heading p { font-size:14px; line-height:20px; }
+  .phone-shell .home-friend-row b { font-size:16px; font-weight:600; }
+  .phone-shell .home-friend-row small { font-size:14px; }
+  .phone-shell .friends-list-heading { font-size:12px; font-weight:500; letter-spacing:0; text-transform:none; }
   .phone-shell .mobile-info-tabs { gap: 2px; width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .phone-shell .mobile-info-tabs button { min-height: 44px; padding-inline: 15px; color: #aaaab7; }
+  .phone-shell .mobile-info-tabs button { min-height: 44px; padding-inline: 16px; color: #aaaab7; }
   .phone-shell .mobile-info-tabs button[aria-pressed="true"] { color: #a6aeff; border-color: #7987ff; }
   .phone-shell .members #membersFriends { max-width: 100%; white-space: nowrap; overflow: hidden; }
   .phone-shell .mobile-channel-media { color: #b6b6c0; }
@@ -391,7 +427,7 @@
   #phoneVoiceHost, #phoneVoiceHost > .call-screen { background: #111113; }
   #phoneVoiceHost .embedded-call-header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; }
   #phoneVoiceHost .call-heading { flex: 1; min-width: 0; }
-  #phoneVoiceHost .call-heading b { font-size: 17px; font-weight: 700; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #phoneVoiceHost .call-heading b { font-size: 16px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   #phoneVoiceHost .call-heading small { font-size: 12px; color: #a1a1ad; }
   #phoneVoiceHost .call-header-actions { display: flex; gap: 5px; }
   #phoneVoiceHost .call-header-actions > button { width: 38px; height: 38px; padding: 0; justify-content: center; border-radius: 11px; }
