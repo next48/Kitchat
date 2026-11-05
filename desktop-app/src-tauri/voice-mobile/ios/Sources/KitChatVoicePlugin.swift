@@ -15,7 +15,7 @@ class KitChatVoicePlugin: Plugin {
    webview.scrollView.contentInsetAdjustmentBehavior = .never
    webview.scrollView.contentInset = .zero
    webview.scrollView.scrollIndicatorInsets = .zero
-   webview.isOpaque = false
+   webview.isOpaque = true
    webview.backgroundColor = UIColor(red: 18/255, green: 18/255, blue: 20/255, alpha: 1)
  }
  @objc public func configure(_ invoke: Invoke) throws {
