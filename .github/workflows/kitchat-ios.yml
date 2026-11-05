@@ -11,12 +11,27 @@ permissions:
 jobs:
   server-checks:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: kit_test_root
+          MYSQL_DATABASE: kit_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -pkit_test_root"
+          --health-interval=5s --health-timeout=5s --health-retries=15
     steps:
       - uses: actions/checkout@v4
       - name: Check PHP changes
         run: |
           php -l desktop-app/server-update/api/direct_messages.php
           php -l desktop-app/server-update/api/call_signal.php
+      - name: Test two isolated accounts
+        env:
+          KITCHAT_TEST_DATABASE: isolated_ci_only
+          MYSQL_TEST_PASSWORD: kit_test_root
+        run: python3 desktop-app/tools/server-integration.py
       - uses: actions/upload-artifact@v4
         with:
           name: KitChat-server-update

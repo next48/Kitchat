@@ -433,7 +433,7 @@ function gameElapsed(startedAt: number) {
 }
 
 async function refreshOwnGameActivity() {
-  if (!currentUser || gameActivityRefreshInFlight) return;
+  if (!isTauri() || /iPhone|iPad|Android/.test(navigator.userAgent) || !currentUser || gameActivityRefreshInFlight) return;
   gameActivityRefreshInFlight = true;
   try {
     const next = await invoke<GameActivity | null>("detect_game_activity");
@@ -2603,7 +2603,7 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
   }, viewListen);
   if (dmPeer && homePane.kind === 'dm') {
     const header = document.querySelector('.phone-shell .mobile-chat-actions') || document.querySelector('.dm-header');
-    if(header) { const callButton=document.createElement('button');callButton.type='button';callButton.setAttribute('aria-label','Позвонить');callButton.innerHTML=ico('phone');callButton.onclick=()=>void personalCalls.start({id:dmPeer.id,name:dmPeer.name});header.append(callButton); }
+    if(header) { const callButton=document.createElement('button');callButton.type='button';callButton.setAttribute('aria-label','Позвонить');callButton.innerHTML=ico('phone-call');callButton.onclick=()=>void personalCalls.start({id:dmPeer.id,name:dmPeer.name});header.append(callButton); }
   }
   const dmForm = document.querySelector<HTMLFormElement>("#dmMessageForm");
   if (dmForm && homePane.kind === "dm" && homePane.userId) {

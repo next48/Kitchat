@@ -9,7 +9,7 @@ export function createDirectCalls(options:{api:string;token:()=>string;user:()=>
   let call:Call|null=null,polling=false,muted=false,pollTimer=0,failures=0;
   const handled=new Set<string>();
   const host=document.createElement('section');host.className='personal-call';host.hidden=true;host.setAttribute('aria-label','Личный звонок');
-  host.innerHTML=`<header><button data-call-minimize aria-label="Свернуть звонок">${ico('chevron-down')}</button><b>Личный звонок</b></header><main><span class="personal-call-avatar"></span><h2></h2><p role="status"></p></main><footer><button data-call-mute aria-label="Микрофон">${ico('mic')}</button><button data-call-answer aria-label="Ответить">${ico('phone')}</button><button data-call-end aria-label="Завершить звонок">${ico('phone-down')}</button></footer><audio autoplay playsinline></audio>`;
+  host.innerHTML=`<header><button data-call-minimize aria-label="Свернуть звонок">${ico('chevron-down')}</button><b>Личный звонок</b></header><main><span class="personal-call-avatar"></span><h2></h2><p role="status"></p></main><footer><button data-call-mute aria-label="Микрофон">${ico('mic')}</button><button data-call-answer aria-label="Ответить">${ico('phone-call')}</button><button data-call-end aria-label="Завершить звонок">${ico('phone-down')}</button></footer><audio autoplay playsinline></audio>`;
   document.body.append(host);
   const label=host.querySelector('p')!,title=host.querySelector('h2')!,audio=host.querySelector('audio')!;
   const answer=host.querySelector<HTMLButtonElement>('[data-call-answer]')!,mute=host.querySelector<HTMLButtonElement>('[data-call-mute]')!;
