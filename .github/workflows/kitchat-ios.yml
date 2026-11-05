@@ -9,7 +9,20 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  server-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check PHP changes
+        run: |
+          php -l desktop-app/server-update/api/direct_messages.php
+          php -l desktop-app/server-update/api/call_signal.php
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KitChat-server-update
+          path: desktop-app/server-update/
   ipa:
+    needs: server-checks
     runs-on: macos-15-intel
     timeout-minutes: 60
     defaults:

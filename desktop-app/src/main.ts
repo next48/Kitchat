@@ -11,6 +11,11 @@ import "./mobile-navigation.css";
 import "./mobile-voice-float.css";
 import "./mobile-performance.css";
 import { presentVoicePreview } from "./mobile-voice-preview";
+import { installMobileLongPress } from "./mobile-long-press";
+import { openMobileActionSheet } from "./mobile-action-sheet";
+import { createDirectCalls } from "./direct-calls";
+import "./direct-calls.css";
+installMobileLongPress();
 import { installMobileVoiceFloat } from "./mobile-voice-float";
 let phoneVoiceFloat: ReturnType<typeof installMobileVoiceFloat> | undefined;
 import { installMobileCallControls } from "./mobile-call-controls";
@@ -808,6 +813,7 @@ window.addEventListener("blur", () => {
 });
 void syncGlobalPttShortcut();
 const token = () => localStorage.getItem("kitchat_token") || "";
+const personalCalls = createDirectCalls({api:API,token,user:()=>currentUser,busy:()=>Boolean(activeVoiceChannel),error:message=>appAlert(message)});
 const floatingTooltip = document.createElement("div");
 floatingTooltip.className = "floating-tooltip";
 floatingTooltip.hidden = true;
@@ -1662,6 +1668,7 @@ function closeAppContextMenu() {
 }
 function openAppContextMenu(x: number, y: number, items: ContextItem[]) {
   closeAppContextMenu();
+  if (phoneLayout.matches) { openMobileActionSheet(items, error => appAlert(error instanceof Error ? error.message : String(error))); return; }
   const menu = document.createElement("div");
   menu.className = "app-context-menu";
   menu.innerHTML = items.map((item, index) => `<button type="button" data-context-item="${index}" class="${item.danger ? "danger" : ""}">${esc(item.label)}</button>`).join("");
@@ -2160,11 +2167,11 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     list
       .map((c) => {
         const users = visibleVoice.filter((v) => v.channel_id === c.id);
-        const edit = c.can_edit
+        const edit = c.can_edit && !phone
           ? `<i class="channel-manage" data-edit-channel="${c.id}" title="Настроить канал">${ico("edit")}</i>`
           : "";
         const connected = type === "voice" && c.id === activeVoiceChannel;
-        const button = `<button class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : phone ? "volume" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом${phone ? "" : " · P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
+        const button = `<button data-channel-id="${c.id}" class="channel ${selected?.id === c.id ? "active" : ""} ${connected ? "voice-connected" : ""}" ${type === "voice" ? `data-voice="${c.id}" data-voice-name="${esc(c.name)}" data-voice-mode="${"p2p"}"` : `data-channel="${esc(c.slug)}"`}><b>${type === "text" ? "#" : ico(connected ? "signal" : phone ? "volume" : "mic")}</b><span>${esc(c.name)}<small>${type === "voice" ? `${users.length} в голосовом${phone ? "" : " · P2P"}` : esc(c.topic || "Текстовый канал")}</small></span>${connected ? `<time class="voice-channel-duration" data-voice-duration>${voiceDurationText()}</time>` : ""}${edit}</button>`;
         return type === "voice"
           ? `<div class="voice-channel-wrap">${button}<div class="voice-presence" data-channel-id="${c.id}">${users.map(voicePerson).join("")}</div></div>`
           : button;
@@ -2578,9 +2585,12 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     event.stopPropagation();
     void deleteDirectMessage(Number(button.dataset.dmDelete || 0));
   }));
-  document.querySelectorAll<HTMLElement>("[data-dm-message-id]").forEach((item) => item.addEventListener("contextmenu", (event) => {
+  document.addEventListener("contextmenu", (event) => {
+    if (revision !== viewRevision) return;
+    const item = (event.target as Element).closest<HTMLElement>('[data-dm-message-id]');
+    if (!item) return;
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
     const id = Number(item.dataset.dmMessageId || 0);
     const text = item.dataset.dmMessageText || "";
     const mine = item.dataset.dmMessageOwner === "1";
@@ -2590,7 +2600,11 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       actions.push({ label: "Удалить сообщение", danger: true, action: () => deleteDirectMessage(id) });
     }
     openAppContextMenu(event.clientX, event.clientY, actions);
-  }));
+  }, viewListen);
+  if (dmPeer && homePane.kind === 'dm') {
+    const header = document.querySelector('.phone-shell .mobile-chat-actions') || document.querySelector('.dm-header');
+    if(header) { const callButton=document.createElement('button');callButton.type='button';callButton.setAttribute('aria-label','Позвонить');callButton.innerHTML=ico('phone');callButton.onclick=()=>void personalCalls.start({id:dmPeer.id,name:dmPeer.name});header.append(callButton); }
+  }
   const dmForm = document.querySelector<HTMLFormElement>("#dmMessageForm");
   if (dmForm && homePane.kind === "dm" && homePane.userId) {
     const dmInput = dmForm.querySelector<HTMLTextAreaElement>("#dmMessageInput")!;
@@ -2766,6 +2780,12 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
     if (revision !== viewRevision) return;
     event.preventDefault();
     const target = event.target as HTMLElement;
+    const channelTarget = target.closest<HTMLElement>('.channel[data-channel-id]');
+    if (channelTarget) {
+      const channel = state.channels.find(item => item.id === Number(channelTarget.dataset.channelId));
+      if (channel?.can_edit) openAppContextMenu(event.clientX,event.clientY,[{label:'Редактировать канал',action:()=>manageChannel(channel.id)}]);
+      return;
+    }
     const voiceTarget = target.closest<HTMLElement>("[data-voice-person],[data-livekit-user],[data-p2p-user]");
     const message = target.closest<HTMLElement>("[data-message-id]");
     const stickerButton = target.closest<HTMLElement>("[data-sticker]");
@@ -2860,12 +2880,9 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
       button.addEventListener("pointerdown", warmChannel, {once:true,passive:true});
     });
   }
-  document.querySelectorAll<HTMLElement>("[data-edit-channel]").forEach(
-    (button) =>
-      (button.onclick = (event) => {
-        event.stopPropagation();
+  function manageChannel(channelId:number) {
         const channel = state.channels.find(
-          (item) => item.id === Number(button.dataset.editChannel),
+          (item) => item.id === channelId,
         );
         if (!channel || !active) return;
         modal(
@@ -2886,13 +2903,14 @@ async function shellView(serverId = 0, channelSlug = "", forceHome = false) {
             await shellView(active.id, selected?.slug || "");
           },
         );
-      }),
-  );
+  }
+  document.querySelectorAll<HTMLElement>("[data-edit-channel]").forEach(button => { button.onclick = event => { event.stopPropagation(); manageChannel(Number(button.dataset.editChannel)); }; });
   document
     .querySelectorAll<HTMLButtonElement>("[data-voice]")
     .forEach(
       (button) =>
         (button.onclick = () => {
+          if (personalCalls.active()) { appAlert("Сначала завершите личный звонок"); return; }
           const channelId = Number(button.dataset.voice);
           if (channelId === activeVoiceChannel) return void callView(
             channelId,

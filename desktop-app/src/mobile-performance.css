@@ -13,6 +13,14 @@
   .phone-shell :is(.messages,.dm-messages,.members,.phone-channel-scroll) { overflow-anchor:none; }
   .modal-layer,.friend-picker-layer { backdrop-filter:none; -webkit-backdrop-filter:none; }
   .phone-shell :is(button,.avatar,.channel,.server) { transition-property:background-color,color,opacity,transform; }
+  .phone-shell .channel .channel-manage { display:none; }
+  .mobile-action-sheet { padding:12px 16px max(16px,env(safe-area-inset-bottom)); }
+  .mobile-action-sheet header { position:relative; justify-content:flex-end; min-height:44px; touch-action:none; }
+  .mobile-action-sheet header::before { content:''; position:absolute; top:-4px; left:calc(50% - 18px); width:36px; height:4px; border-radius:4px; background:#56565e; }
+  .mobile-action-sheet header button { width:auto; padding:0 12px; font-size:14px; color:#b1b1bb; background:transparent; }
+  .mobile-action-sheet > button { display:block; width:100%; min-height:54px; padding:12px 16px; border-radius:12px; margin-top:4px; font-size:16px; text-align:left; background:#2b2b31; }
+  .mobile-action-sheet > button:active { background:#36363e; }
+  .mobile-action-sheet > .action-danger { color:#ff747b; }
   .mobile-voice-preview[open] { animation:voice-preview-in .3s cubic-bezier(.22,.72,.2,1) both; will-change:transform; }
   .mobile-voice-preview[open]::backdrop { animation:voice-backdrop-in .24s ease-out both; }
   .mobile-voice-preview[open].is-closing { animation:voice-preview-out .2s ease-in both; pointer-events:none; }

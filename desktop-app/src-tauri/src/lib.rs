@@ -1,3 +1,11 @@
+
+#[tauri::command]
+async fn mobile_system_call(app: tauri::AppHandle, action: String, id: String, name: String, incoming: bool) -> Result<serde_json::Value,String> {
+ #[cfg(target_os = "ios")]
+ { use tauri::Manager; app.state::<tauri_plugin_voice_mobile::MobileVoice<tauri::Wry>>().system_call(action,id,name,incoming) }
+ #[cfg(not(target_os = "ios"))]
+ { let _=(app,action,id,name,incoming); Ok(serde_json::json!({})) }
+}
 #[tauri::command]
 async fn mobile_audio_route(app: tauri::AppHandle, active: bool, speaker: Option<bool>) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "ios")]
@@ -73,6 +81,35 @@ async fn direct_messages_request(
         client.post("https://oliverkitchen.ru/api/direct_messages.php").query(&query).form(&form)
     } else {
         client.get("https://oliverkitchen.ru/api/direct_messages.php").query(&query)
+    };
+    let response = request.bearer_auth(token).send().await
+        .map_err(|error| format!("Сервер личных сообщений недоступен: {error}"))?;
+    let status = response.status();
+    let value = response.json::<serde_json::Value>().await
+        .map_err(|error| format!("Сервер вернул некорректный ответ: {error}"))?;
+    if !status.is_success() || !value.get("ok").and_then(|item| item.as_bool()).unwrap_or(false) {
+        return Err(value.get("error").and_then(|item| item.as_str()).unwrap_or("Ошибка личных сообщений").to_string());
+    }
+    Ok(value)
+}
+
+#[tauri::command]
+async fn call_signal_request(
+    token: String,
+    query: std::collections::HashMap<String, String>,
+    data: Option<std::collections::HashMap<String, String>>,
+) -> Result<serde_json::Value, String> {
+    if token.trim().is_empty() {
+        return Err("Требуется авторизация".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("Не удалось создать HTTP-клиент: {error}"))?;
+    let request = if let Some(form) = data {
+        client.post("https://oliverkitchen.ru/api/call_signal.php").query(&query).form(&form)
+    } else {
+        client.get("https://oliverkitchen.ru/api/call_signal.php").query(&query)
     };
     let response = request.bearer_auth(token).send().await
         .map_err(|error| format!("Сервер личных сообщений недоступен: {error}"))?;
@@ -604,6 +641,8 @@ pub fn run() {
             download_attachment,
             detect_game_activity,
             direct_messages_request,
+            call_signal_request,
+            mobile_system_call,
             capture_sources,
             capture_frame,
             tray_action,
@@ -650,6 +689,8 @@ pub fn run() {
             mobile_audio_route,
             is_mobile_app,
             direct_messages_request,
+            call_signal_request,
+            mobile_system_call,
             settings_backup_load,
             settings_backup_save
         ])

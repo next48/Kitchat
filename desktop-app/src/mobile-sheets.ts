@@ -15,13 +15,16 @@ export function installMobileSheets() {
     if (event.target.closest('input,textarea,select,[contenteditable=true],video,audio')) return;
     const element = event.target;
     const modal = element.closest<HTMLElement>('.modal-card');
+    const actions = element.closest<HTMLElement>('.mobile-action-sheet');
     const info = element.closest<HTMLElement>('.mobile-info-sheet');
     const voice = element.closest<HTMLElement>('#phoneVoiceHost:not([hidden])');
     const chat = element.closest<HTMLElement>('.mobile-chat-screen');
     let target:HTMLElement | null = null;
     let close:HTMLElement | null = null;
     let axis:'x'|'y' = 'x';
-    if (modal && element.closest('.modal-titlebar') && !element.closest('button')) {
+    if (actions && element.closest('header') && !element.closest('button')) {
+      target = actions; close = actions.querySelector('[data-voice-close]'); axis = 'y';
+    } else if (modal && element.closest('.modal-titlebar') && !element.closest('button')) {
       target = modal; close = modal.querySelector('.modal-close'); axis = 'y';
     } else if (info && element.closest('.mobile-members-bar') && !element.closest('button')) {
       target = info; close = info.querySelector('[data-mobile-pane=chat]'); axis = 'y';

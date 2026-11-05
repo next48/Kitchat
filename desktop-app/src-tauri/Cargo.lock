@@ -3994,7 +3994,7 @@ dependencies = [
 
 [[package]]
 name = "oliver-kitchen-desktop"
-version = "1.5.5"
+version = "1.5.6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

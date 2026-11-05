@@ -2,6 +2,9 @@ use tauri::{Manager, Runtime, plugin::{Builder, PluginHandle, TauriPlugin}};
 tauri::ios_plugin_binding!(init_plugin_kitchat_voice);
 pub struct MobileVoice<R: Runtime>(PluginHandle<R>);
 impl<R: Runtime> MobileVoice<R> {
+    pub fn system_call(&self, action: String, id: String, name: String, incoming: bool) -> Result<serde_json::Value, String> {
+        self.0.run_mobile_plugin("systemCall", serde_json::json!({"action":action,"id":id,"name":name,"incoming":incoming})).map_err(|error| error.to_string())
+    }
     pub fn configure(&self, active: bool, speaker: Option<bool>) -> Result<serde_json::Value, String> {
         self.0.run_mobile_plugin("configure", serde_json::json!({"active":active,"speaker":speaker})).map_err(|error| error.to_string())
     }
